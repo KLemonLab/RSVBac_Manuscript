@@ -1,0 +1,357 @@
+---
+format:
+  html:
+    suppress-bibliography: true
+---
+
+# Caspase {.unnumbered}
+
+```{r}
+# loading packages
+library(tidyverse)
+library(skimr)
+library(ggtext)
+library(scales)
+library(lme4)
+library(lmerTest) 
+library(emmeans)
+library(knitr)
+library(ggpubr)
+```
+
+## Data Input 
+
+All data inputs and outputs in this repo are relative to **FOLDER_PATH**. Please, save the provided data frames in RDS format in the `dataframes` folder. 
+
+```{r}
+# Define the directory paths based on R.environ
+FOLDER_PATH <- Sys.getenv("BOX_PATH_RSVBacPublication") 
+dataframes_folder <- file.path(FOLDER_PATH, "dataframes")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/Caspase")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+
+# Colors
+Bac.colors <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2")
+Bac.colors.ext <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2", "grey", "grey")
+```
+
+```{r}
+# Define batch IDs
+batchIDs <- c("250114", "251221")
+
+# Read all RDS files into a named list
+data_list <- setNames(
+  lapply(batchIDs, function(id) {
+    readRDS(file.path(dataframes_folder, paste0("RSVbac_Caspase_", id, ".rds")))
+  }),
+  batchIDs
+)
+```
+
+## Concentrations from Luminescence values
+
+For each batch, we fit a linear model to the standard curve data and use the model coefficients to calculate the concentration of each sample based on its luminescence value. We also generate plots for the standard curves and individual samples and controls. The final concentration per organoid is calculated considering that 50 uL out of 200 uL were used in the assay.
+
+```{r}
+analyze_lum_data <- function(data, batchID) {
+  
+  # Split sample and standards dataframes
+  data_standards <- data %>%
+    filter(sampletype == "standard") %>%
+    filter(luminescence != 0) %>%
+    select(NewCaspase,luminescence)
+  
+  data_samples <- data %>%
+    filter(sampletype == "sample")
+  
+  data_samples$species <- factor(data_samples$species, levels = c("NB", "Spn", "Hin", "Dpi", "AODM", "EBSS"))
+  
+  # Fit a linear model 
+  lmStandard <- lm(luminescence ~ log(NewCaspase), data_standards) 
+  
+  # Extract coefficients and R-squared value from model
+  coefficients <- lmStandard$coefficients
+  lm_eq <- paste("y =", coef(lmStandard)[2], "x +", coef(lmStandard)[1])
+  r_squared <- round(summary(lmStandard)$r.squared, 3)
+  
+  # Create a data frame for the fitted line within the range of standard concentrations
+  line_data <- data.frame(
+    log_concentration = seq(min(log(data_standards$NewCaspase)),
+                            max(log(data_standards$NewCaspase)),
+                            length.out = 100)
+  ) %>%
+    mutate(Cq = coefficients[1] + coefficients[2] * log_concentration)
+  
+  # Standard curve plot
+  standards_plot <- ggplot(data_standards, aes(x = log(NewCaspase), y = luminescence)) +
+    geom_point(size = 3, alpha = 0.5) +
+    geom_line(data = line_data, aes(x = log_concentration, y = Cq), 
+              color = "black", linetype = "dotted", linewidth = 0.8) +
+    labs(title = "Standard Curve Formula",
+         x = "ln(caspase)", y = "luminescence") +
+    geom_text(x = min(log(data_standards$NewCaspase)), y = max(data_standards$luminescence), 
+              label = paste("Equation: ", lm_eq, "\n               R-squared: ", r_squared), 
+              hjust = -0.3, vjust = 1) +
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 14, color = "black"))
+  
+  # Apply linear model coefficients to calculate concentration in samples.
+  data_samples <- data_samples %>%
+    mutate(NewCaspase = exp((luminescence - coefficients[1]) / coefficients[2]))
+  
+  # Samples plot
+  samples_plot <- ggplot(data_samples, aes(x = log(NewCaspase), y = luminescence)) +
+    geom_point(aes(x = log(NewCaspase), y = luminescence, color = species), size = 3, alpha = 0.5) +
+    geom_line(data = line_data, aes(x = log_concentration, y = Cq), 
+              color = "black", linetype = "dotted", linewidth = 0.8) +
+    scale_color_manual(values = Bac.colors.ext) +
+    labs(title = "Individual Caspase Values",
+         x = "ln(caspase)", y = "luminescence") +
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 14, color = "black"))
+  
+  # Final concentration in caspase units / organoid
+  data_samples <- data_samples %>%
+    mutate(NewCaspase = NewCaspase*8) # 50 out of 200 uL used in the assay
+  
+  # Plot both plots side by side
+  print(combined_plot <- ggarrange(standards_plot, samples_plot, ncol = 2, nrow = 1, common.legend = F, legend = "bottom"))
+  
+  # Return results
+  return(list(
+    samples = data_samples,
+    standards = data_standards
+  ))
+}
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 12
+results_list <- mapply(analyze_lum_data, data_list, names(data_list), SIMPLIFY = F)
+
+# Combine all samples into a single dataframe
+all_samples <- bind_rows(lapply(results_list, `[[`, "samples"), .id = "batchID")
+```
+
+```{r}
+# Save data frame as CSV and R object in the dataframes folder
+dataframeID <- "RSVbac"
+write_csv(all_samples, file.path(dataframes_folder, paste0(dataframeID, "_Caspase_values.csv")))
+saveRDS(all_samples, file.path(dataframes_folder,  paste0(dataframeID, "_Caspase_values.rds")))
+
+# Use this to read the final objects
+all_samples <- readRDS(file.path(dataframes_folder, paste0(dataframeID, "_Caspase_values.rds")))
+
+# Average technical replicates
+avg_data <- all_samples %>%
+  group_by(date, line, timeinf, species, virus, Combined, bacteria_label) %>%
+  summarise(conc = mean(NewCaspase)) %>%
+  ungroup()
+```
+
+
+## Stats and Plots for samples at 4 dpvi
+
+```{r}
+# Filter out the media control values
+avg_data_4 <- avg_data %>%
+  filter(timeinf == "4") %>%
+  droplevels()
+```
+
+### Statistics
+
+Analysis with a mixed-effects model with random effects for `line` and `date` and the interaction of fixed effects for `species` and the `virus` combined condition. If the model is singular, it is rerun with only `date` as random effect. The contrasts are calculated using emmeans with Holm adjustment for the virus comparisons for each bacteria. Predicted values are backtransformed to CFU scale for plotting. 
+
+Highlighted contrasts are those with a cutoff p-value of 0.05.
+
+```{r}
+# Function to analyze the data and plot stats
+analysis_function <- function(data, cutoff_pvalue, cutoff_FC) {
+  
+  # Mixed-effects model with random effects
+  model <- lmer(log(conc) ~ species * virus 
+                + (1|line) + (1|line:date), 
+                data = data)
+  
+  # Extract random effects data and convert to dataframe
+  singular = isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) 
+  
+  # If model is singular, rerun with only date as random effect
+  if (singular) {
+    model <- lmer(log(conc) ~ species * virus 
+                  + (1|date), 
+                  data = data)
+  }
+  
+  # Run ANOVA and extract pvalues
+  anova <- anova(model)
+  anova_df <- as.data.frame(anova) 
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term")
+  
+  # Generate contrasts for virus comparisons within each bacteria using emmeans with Holm adjustment
+  emmeans_model <- emmeans(model, ~ species * virus)
+  emmeans_virus <- pairs(emmeans_model, simple = "virus", adjust = "holm")
+  
+  # Extract virus contrasts from emmeans_model and format the dataframe
+  contrasts_df <- as.data.frame(summary(emmeans_virus)) %>%
+    mutate(contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    separate(contrast, into = c("virus1", "virus2"), sep = "-") %>%
+    mutate(condition1 = paste(species, virus1, sep = "."),
+           condition2 = paste(species, virus2, sep = "."),
+           contrast = paste(condition1, condition2, sep = " - ")) %>%
+    select(-c(species, virus1, virus2)) %>%
+    relocate(contrast)
+  
+  contrasts_df$group1 <- data$bacteria_label[match(contrasts_df$condition1, data$Combined)]
+  contrasts_df$group2 <- data$bacteria_label[match(contrasts_df$condition2, data$Combined)]
+
+  # Adds predictions based on fixed effects, averaged over random effects. It gives a population estimate
+  data <- cbind(data, predval = predict(model,re.form = NA, se.fit = TRUE))
+  
+  # Backtransform the predicted values and CIs
+  transf_preds_df <- data %>% 
+    group_by(Combined, bacteria_label, species, virus) %>%
+    summarise(mean.predval.fit = mean(predval.fit),
+              mean.predval.se.fit = mean(predval.se.fit),
+              mean.conc = mean(conc),
+              .groups = 'drop') %>%
+    mutate(pconc = exp(mean.predval.fit),
+           pconc_min = exp(mean.predval.fit - 2*mean.predval.se.fit),
+           pconc_max = exp(mean.predval.fit + 2*mean.predval.se.fit)) %>%
+    mutate(condition = interaction(species, virus, sep = "."))
+  
+  # Calculate fold-change values for each contrast and highlight the most relevant is pvalue < cutoff and FC > cutoff
+  contrasts_df <- contrasts_df %>%
+    ungroup() %>%
+    left_join(select(transf_preds_df, condition, pconc), by = join_by(condition1 == condition)) %>%
+    left_join(select(transf_preds_df, condition, pconc), by = join_by(condition2 == condition), suffix = c(".1", ".2")) %>%
+    mutate(FC = pconc.1 / pconc.2,
+           log2FC = log2(FC),
+           FC = if_else(FC < 1, 1 / FC, -FC),
+           highlighted = case_when(
+             p.value < cutoff_pvalue & abs(log2FC) >= cutoff_FC ~ "*",
+             TRUE ~ "")) %>%
+    select(contrast, p.value, pconc.1, pconc.2, FC, log2FC, highlighted, condition1, condition2, group1, group2)
+  
+  return(list(anova = anova,
+              random_effects = random_effects_df,
+              fixed_effects = fixed_effects_df,
+              contrasts = contrasts_df,
+              transf_preds = transf_preds_df))
+}
+```
+
+```{r}
+all_stats <- analysis_function(avg_data_4, cutoff_pvalue = 0.05, cutoff_FC = 0)
+kable(all_stats$anova)
+kable(all_stats$random_effects)
+kable(all_stats$fixed_effects)
+kable(all_stats$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+```
+
+### Plots
+
+```{r}
+# Function to plot the CFUs using the statistical model
+plot_function <- function(true_data, stats_data, contrasts, ymax) {
+  
+  # Plot
+  plot <- ggplot() +
+    
+    geom_jitter(data = true_data, 
+                aes(x = bacteria_label, y = conc, color = species,
+                    shape = line),
+                width = 0.2, size = 3, alpha = 0.85, stroke = 0.75, show.legend = TRUE) +   
+
+    scale_color_manual(values = Bac.colors) +
+    scale_shape_manual(values = c(19,17)) +
+    
+    scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+                  labels = trans_format("log10", math_format(10^.x))) +
+    
+    geom_point(data = stats_data, aes(x = bacteria_label, y = pconc), shape = 3, size = 3) +
+    geom_errorbar(data = stats_data, width = 0.5,
+                  aes(x = bacteria_label, y = pconc, ymax = pconc_max, ymin = pconc_min)) +
+    
+    # General style
+    scale_x_discrete(expand = c(0,0.5)) +
+    labs(x = "",
+         y = "Caspase (total units)",
+         caption = paste("RSV", "Bact", "DPVI", sep = "\n"),
+         color = "Bacteria", color = "Bacteria", shape = "HNO Line") +  
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          legend.text = element_markdown(),
+          text = element_text(size = 18, color = "black"),
+          plot.caption = element_text(size = 13, face = "bold", hjust = -0.13, vjust = 24),
+          axis.text.x = element_markdown(),
+          axis.text.y = element_text(color = "black"),
+          plot.margin = unit(c(0.1,0.1,-0.8,0.1), "in"))
+  
+  # Add significance asterisks for highlighted contrasts
+  contrast_sign <- contrasts %>%
+    filter(highlighted != "") %>%
+    mutate(plot = "*")
+  
+  if (nrow(contrast_sign) > 0) {
+    plot <- plot +
+      stat_pvalue_manual(contrast_sign, label = "plot", y.position = ymax, 
+                         step.increase = 0.03, tip.length = 0.01, bracket.shorten = 0.2, vjust = 0.6, bracket.size = 0.5)
+  }
+  
+  return(plot)
+} 
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 7
+# This plot was not used in the manuscript
+Caspase_plot <- plot_function(true_data = avg_data_4, stats_data = all_stats$transf_preds, contrasts = all_stats$contrasts, ymax = 1.6)
+```
+
+```{r}
+boxplot <- ggplot(avg_data_4, aes(x = bacteria_label, y = conc)) +
+  geom_boxplot(outliers = F ) +
+  geom_jitter(aes(x = bacteria_label, y = conc, color = species, shape = line),
+              width = 0.2, size = 3, alpha = 0.85, stroke = 0.75, show.legend = TRUE) +   
+  geom_hline(yintercept = 0.16*8, linetype = "dashed", color = "black", linewidth = 0.8) + 
+  scale_color_manual(values = Bac.colors) +
+  scale_y_log10(limits = c(NA, 10^2),
+                breaks = 10^(0:2), 
+                labels = trans_format("log10", math_format(10^.x))) +
+  labs(x = "",
+       y = "Caspase units / organoid",
+       caption = paste("RSV", "Bact", "DPVI", sep = "\n"),
+       color = "Bacteria", shape = "HNO Line") +  
+  theme_bw() +
+  theme(panel.grid = element_blank(), 
+        text = element_text(size = 18, color = "black"),
+        plot.caption = element_text(size = 13, face = "bold", hjust = -0.13, vjust = 24),
+        axis.text.x = element_markdown(),
+        axis.text.y = element_text(color = "black"),
+        plot.margin = unit(c(0.1,0.1,-0.8,0.1), "in"))
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 7
+boxplot
+
+ggsave(boxplot, filename = file.path(outputs_folder,  paste0(dataframeID, "_BoxplotCaspase.png")), width = 7, height = 5)
+saveRDS(boxplot, file = file.path(outputs_folder,  paste0(dataframeID, "_BoxplotCaspase.rds")))
+```

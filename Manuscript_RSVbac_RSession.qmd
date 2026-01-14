@@ -1,0 +1,69 @@
+---
+execute:
+  echo: true
+format:
+  html:
+    suppress-bibliography: true
+---
+
+# R Session Info {.unnumbered}
+
+This document lists all R packages used across all analysis notebooks in this repository.
+
+```{r}
+#| warning: FALSE
+#| message: FALSE
+
+# Core data manipulation and visualization
+library(tidyverse)      # Data manipulation and ggplot2
+library(scales)         # Axis scaling and transformations
+library(ggtext)         # Markdown text in ggplot2
+library(ggpubr)         # Publication-ready plots
+library(patchwork)      # Combining plots
+library(ggrepel)        # Non-overlapping text labels
+library(ggh4x)          # Extended ggplot2 features (faceting)
+
+# Data export
+library(writexl)        # Writing Excel files
+
+# Statistical modeling
+library(lme4)           # Linear mixed-effects models
+library(lmerTest)       # p-values for mixed models
+library(emmeans)        # Estimated marginal means and contrasts
+
+# Data summary and tables
+library(skimr)          # Data summaries
+library(knitr)          # Table formatting with kable()
+library(kableExtra)     # Extended table formatting
+library(gridExtra)      # Arranging tables and plots
+
+# Specialized analyses
+library(mixOmics)       # Multivariate analysis (PCA, PLS-DA)
+library(vegan)          # Ecological diversity (rarefaction curves)
+
+# RNA-Seq specific
+library(tximport)       # Importing transcript quantification
+library(DESeq2)         # Differential expression analysis
+library(fgsea)          # Fast gene set enrichment analysis
+
+# Visualization utilities
+library(RColorBrewer)   # Color palettes
+library(viridis)        # Color palettes
+library(Cairo)          # High-quality graphics device
+
+# Interactive visualizations
+library(plotly)         # Interactive plots
+library(htmltools)      # HTML widgets support
+library(htmlwidgets)    # Widget framework
+
+# Graphics utilities
+library(grid)           # Low-level graphics
+```
+
+## Session Information
+
+This shows the exact versions of R and all packages used in the analysis.
+
+```{r}
+sessionInfo()
+```

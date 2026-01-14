@@ -1,0 +1,641 @@
+---
+format:
+  html:
+    suppress-bibliography: true
+---
+
+# RSV RT-qPCR {.unnumbered}
+
+```{r}
+# loading packages
+library(tidyverse)
+library(skimr)
+library(ggtext)
+library(scales)
+library(lme4)
+library(lmerTest) 
+library(emmeans)
+library(knitr)
+library(ggpubr)
+```
+
+## Data Input 
+
+All data inputs and outputs in this repo are relative to **FOLDER_PATH**. Please, save the provided data frames in RDS format in the `dataframes` folder. 
+
+```{r}
+# Define directory paths based on R.environ
+FOLDER_PATH <- Sys.getenv("BOX_PATH_RSVBacPublication") 
+dataframes_folder <- file.path(FOLDER_PATH, "dataframes")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/qRT-PCR")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+
+# Colors
+Bac.colors <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2")
+Bac.colors.ext <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2", "grey", "grey")
+Spn.colors.K <- c("#a89de0")
+NB.colors.K <- c("#CC9564")
+```
+
+```{r}
+# Define batch IDs
+batchIDs <- c("250114", "250510", "250522", "251206", "251221")
+
+# Read all RDS files into a named list
+data_list <- setNames(
+  lapply(batchIDs, function(id) {
+    readRDS(file.path(dataframes_folder, paste0("RSVbac_RSVqPCR_", id, ".rds")))
+  }),
+  batchIDs
+)
+```
+
+## Concentrations from Cq values
+
+For each batch, we fit a linear model to the standard curve data and use the model coefficients to calculate the concentration of each sample based on its Cq value. We also generate plots for the standard curves and individual samples and controls. Standard curve was created with serial dilutions of the RSV ultramer starting with a 4.294 x 10^12 copies/µl stock. The final concentration per organoid is calculated considering that 2µl of RNA extract and standard were used in each qPCR reaction and that RNA samples were extracted in a final volume of 100µl.
+
+```{r}
+analyze_qPCR_data <- function(data, batchID) {
+  
+  # Split sample and standards dataframes
+  data_standards <- data %>%
+    filter(sampletype == "standard") %>%
+    mutate(label = case_when(
+      enzyme == "T" ~ "Standard",
+      enzyme == "F" ~ "Control No RT"))
+  
+  data_samples <- data %>%
+    filter(sampletype == "sample") %>%
+    select(-concentration) %>%
+    mutate(label = case_when(
+      enzyme == "T" & virus == "T" ~ "virus T",
+      enzyme == "T" & virus == "F" ~ "virus F",
+      enzyme == "T" & assay == "stock" ~ "virus stock",
+      enzyme == "F" ~ "Control No RT")) %>%
+    mutate(label = factor(label, levels = c("Control No RT", "virus F", "virus T", "virus stock")))
+  
+  # Filter out rows to use for linear model
+  data_standards_model <- data_standards %>%
+    filter(enzyme == "T") %>%
+    filter(!is.na(Cq)) 
+  
+  # Replace NA Cq values and concentrations for standards
+  data_standards <- data_standards %>%
+    mutate(
+      Cq = coalesce(ifelse(enzyme == "F", 40, Cq), 40),
+      concentration = ifelse(enzyme == "F", 1, concentration)
+    )
+  
+  # Fit a linear model
+  lmStandard <- lm(Cq ~ log(concentration), data_standards_model)
+  
+  # Extract coefficients and R-squared value from model
+  coefficients <- lmStandard$coefficients
+  lm_eq <- paste("y =", round(coef(lmStandard)[2], 3), "x +", round(coef(lmStandard)[1], 3))
+  r_squared <- round(summary(lmStandard)$r.squared, 3)
+  
+  # Create a data frame for the fitted line within the range of standard concentrations
+  line_data <- data.frame(
+    log_concentration = seq(min(log(data_standards_model$concentration)),
+                            max(log(data_standards_model$concentration)),
+                            length.out = 100)
+  ) %>%
+    mutate(Cq = coefficients[1] + coefficients[2] * log_concentration)
+  
+  # Standard curve plot
+  standards_plot <- ggplot(data_standards, aes(x = log(concentration), y = Cq)) +
+    geom_point(aes(color = label), size = 3, alpha = 0.5) +
+    geom_line(data = line_data, aes(x = log_concentration, y = Cq), 
+              color = "black", linetype = "dotted", linewidth = 0.8) +
+    geom_text(x = max(log(data_standards$concentration)) - 5, y = max(data_standards$Cq) - 5, 
+              label = paste("Equation: ", lm_eq, "\nR-squared: ", r_squared)) +
+    labs(title = paste("Batch", batchID, " Standard Curve Formula"), x = "ln(Concentration)", y = "Cq", color = "") +
+    scale_color_manual(values = c("grey30", "red")) +
+    scale_y_continuous(limits = c(0, 45), breaks = seq(0, 45, by = 5)) +
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 14, color = "black"))
+  
+  # Replace NA Cq values with 45
+  data_samples$Cq[is.na(data_samples$Cq)] <- 40
+  
+  # Get the max Cq value from standards used in the model
+  detection_limit_Cq <- max(data_standards_model$Cq, na.rm = TRUE)
+  
+  # Apply it in the concentration calculation
+  data_samples <- data_samples %>%
+    mutate(concentration = exp((Cq - coefficients[1]) / coefficients[2]),
+           concentration = ifelse(Cq > detection_limit_Cq, 429.4, concentration))
+  
+  # Samples plot
+  samples_plot <- ggplot(data_samples, aes(x = log(concentration), y = Cq)) +
+    geom_point(aes(color = label), size = 3, alpha = 0.5) +
+    geom_line(data = line_data, aes(x = log_concentration, y = Cq), 
+              color = "black", linetype = "dotted", linewidth = 0.8) +
+    labs(title = "Individual Sample Values", x = "ln(Concentration)", y = "Cq", color = "") +
+    scale_color_manual(values = c("grey30", "orange", "blue", "lightgreen")) +
+    scale_y_continuous(limits = c(0, 45), breaks = seq(0, 45, by = 5)) +
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 14, color = "black"))
+  
+  # Final concentration calculation
+  data_samples <- data_samples %>%
+    mutate(concentration = concentration*100) # Final concentration per organoid
+  
+  # Plot both plots side by side
+  print(combined_plot <- ggarrange(standards_plot, samples_plot, ncol = 2, nrow = 1, common.legend = F, legend = "bottom"))
+  
+  # Return results
+  return(list(
+    samples = data_samples,
+    standards = data_standards
+  ))
+}
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 12
+results_list <- mapply(analyze_qPCR_data, data_list, names(data_list), SIMPLIFY = F)
+
+# Combine all samples into a single dataframe
+all_samples <- bind_rows(lapply(results_list, `[[`, "samples"), .id = "batchID")
+```
+
+```{r}
+# Save data frame as CSV and R object in the dataframes folder
+dataframeID <- "RSVbac"
+write_csv(all_samples, file.path(dataframes_folder, paste0(dataframeID, "_RSVqPCR_values.csv")))
+saveRDS(all_samples, file.path(dataframes_folder,  paste0(dataframeID, "_RSVqPCR_values.rds")))
+
+# Use this to read the final objects
+all_samples <- readRDS(file.path(dataframes_folder, paste0(dataframeID, "_RSVqPCR_values.rds")))
+
+# Average technical replicates
+avg_data <- all_samples %>%
+  filter(enzyme == "T") %>%
+  group_by(date, line, species, virus, location, time_inf, stock_name, assay, Combined, bacteria_label) %>%
+  summarise(avg_conc = mean(concentration)) %>%
+  ungroup()
+```
+
+## Stats and Plots
+
+### Time Course
+
+Samples without virus (virus = "F"), were removed from the plot
+```{r}
+TimeCourse <- avg_data %>%
+  filter(assay == "TimeCourse") %>%
+  filter(virus == "T") 
+```
+
+```{r}
+# Summarize data to plot median lines
+summary_TimeCourse <- TimeCourse %>%
+  group_by(time_inf, location) %>%
+  summarise(median = median(avg_conc, na.rm = TRUE), .groups = "drop") 
+kable(summary_TimeCourse)
+```
+
+```{r}
+plot <- ggplot() +
+  geom_jitter(data = TimeCourse, 
+              aes(x = time_inf, y = avg_conc, color = location, shape = line), 
+              width = 0.15, height = 0, size = 3, alpha = 0.85) +
+  geom_line(data = summary_TimeCourse, 
+            aes(x = time_inf, y = median, color = location, group = location), 
+            linewidth = 1) +
+  geom_hline(yintercept = 429.4*100, linetype = "dashed", color = "black", linewidth = 0.8) + 
+  scale_shape_manual(values = c(19, 17)) +
+  scale_color_manual(values = c("#1D793E", "#FF8200")) +
+  scale_x_continuous(breaks = seq(2, 10, by = 2)) +
+  scale_y_log10(breaks = 10^(2:9), 
+                labels = trans_format("log10", math_format(10^.x))) +
+  labs(x = "Days post viral infection (DPVI)",
+       y = "RSV copy # / organoid",
+       color = "Location", shape = "HNO Line") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), 
+        text = element_text(size = 18, color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "in"))
+
+ggsave(plot, filename = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_TimeCourse.png")), width = 7, height = 5)
+saveRDS(plot, file = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_TimeCourse.rds")))
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 7
+plot
+```
+
+### Virus + Bacteria at 4DPVI
+
+```{r}
+RSVbac <- avg_data %>%
+  filter(assay == "RSVbac") 
+
+RSVbac$species <- factor(RSVbac$species, levels = c("NB", "Spn", "Hin", "Dpi"))
+```
+
+No-bacteria/no-virus controls (Combined = "NB.F") samples were removed from downstream plots and stats.
+
+```{r}
+RSVbac <- RSVbac %>%
+  filter(Combined != "NB.F") %>%
+  droplevels()
+```
+
+
+Analysis with mixed-effects models, using `line` and `date` as random effects and the `Combined` condition (i.e., bacteria and RSV presence) as fixed effect. `NB.F` condition was removed from the stats. If the model is singular, it is rerun with only `date` as random effect. Contrasts are calculated using emmeans with Holm adjustment for multiple comparisons across all conditions. Predicted values and confidence intervals are backtransformed to PFU scale for plotting.
+
+Highlighted contrasts are those with a cutoff p-value of 0.05.
+
+```{r}
+analysis_function <- function(raw_data, loc, cutoff_pvalue, cutoff_FC) {
+  
+  # Filter data by location
+  data_stats <- raw_data %>%
+    filter(location == loc) %>%
+    droplevels()
+  
+  # Mixed-effects model with random effects
+  model <- lmer(log(avg_conc) ~ Combined
+                + (1|line) + (1|line:date), 
+                data = data_stats)
+  
+  # Extract random effects data and convert to dataframe
+  singular <- isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) 
+  
+  # If model is singular, rerun with only date as random effect
+  if (singular) {
+    model <- lmer(log(avg_conc) ~ Combined + (1|date), data = data_stats)
+  }
+  
+  # Run ANOVA and extract pvalues
+  anova <- anova(model)
+  anova_pvalue <- anova$`Pr(>F)`[1]
+  
+  # If ANOVA is not significant, stop here. Otherwise continue with post-hoc analysis
+  if (is.na(anova_pvalue) || anova_pvalue >= cutoff_pvalue) {
+    return(list(
+      anova = anova,
+      random_effects = random_effects_df,
+      note = "ANOVA not significant; post-hoc tests skipped"
+    ))
+  }
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term")
+  
+  # Generate contrasts for Combined condition using emmeans with Holm adjustment
+  emmeans_model <- emmeans(model, ~ Combined)
+  emmeans_contrasts <- pairs(emmeans_model, adjust = "holm")
+  
+  contrasts_df <- as.data.frame(summary(emmeans_contrasts)) %>%
+    separate(contrast, into = c("condition1", "condition2"), sep = " - ", remove = FALSE)
+  
+  contrasts_df$group1 <- data_stats$bacteria_label[match(contrasts_df$condition1, data_stats$Combined)]
+  contrasts_df$group2 <- data_stats$bacteria_label[match(contrasts_df$condition2, data_stats$Combined)]
+  
+  # Adds predictions based on fixed effects, averaged over random effects. It gives a population estimate
+  data_stats <- cbind(data_stats, predval = predict(model, re.form = NA, se.fit = TRUE))
+  
+  # Backtransform the predicted values and CIs
+  transf_preds_df <- data_stats %>%
+    group_by(Combined, bacteria_label) %>%
+    summarise(mean.predval.fit = mean(predval.fit),
+              mean.predval.se.fit = mean(predval.se.fit),
+              mean.PFU = mean(avg_conc),
+              .groups = 'drop') %>%
+    mutate(pconc = exp(mean.predval.fit),
+           pconc_min = exp(mean.predval.fit - 2*mean.predval.se.fit),
+           pconc_max = exp(mean.predval.fit + 2*mean.predval.se.fit)) 
+  
+  # Calculate fold-change values for each contrast and highlight the most relevant
+  contrasts_df <- contrasts_df %>%
+    ungroup() %>%
+    left_join(select(transf_preds_df, Combined, pconc), by = join_by(condition1 == Combined)) %>%
+    left_join(select(transf_preds_df, Combined, pconc), by = join_by(condition2 == Combined), suffix = c(".1", ".2")) %>%
+    mutate(FC = pconc.1 / pconc.2,
+           log10FC = log10(FC),
+           FC = if_else(FC < 1, 1 / FC, -FC),
+           highlighted = case_when(
+             p.value < cutoff_pvalue & abs(log10FC) >= cutoff_FC ~ "*",
+             TRUE ~ "")) %>%
+    select(contrast, p.value, pconc.1, pconc.2, FC, log10FC, highlighted, condition1, condition2, group1, group2)
+  
+  return(list(
+    anova = anova,
+    random_effects = random_effects_df,
+    fixed_effects = fixed_effects_df,
+    contrasts = contrasts_df,
+    transf_preds = transf_preds_df
+  ))
+}
+```
+
+```{r}
+plot_function <- function(raw_data, loc, stats_data, contrasts, ypval) {
+  
+  # Filter data by location
+  raw_data <- raw_data %>%
+    filter(location == loc) %>%
+    droplevels()
+  
+  # Base plot
+  plot <- ggplot() +
+    geom_jitter(data = raw_data, 
+                aes(x = bacteria_label, y = avg_conc, color = species, shape = line),
+                width = 0.15, height = 0, size = 3, alpha = 0.85, stroke = 0.75, show.legend = TRUE) +   
+    
+    scale_color_manual(values = Bac.colors) +
+    scale_shape_manual(values = c(19, 17)) +
+    
+    scale_x_discrete(expand = c(0, 0.5)) +
+    
+    scale_y_log10(limits = c(NA, 10^10.5),
+                  breaks = 10^(1:10), 
+                  labels = trans_format("log10", math_format(10^.x))) +
+    
+    geom_hline(yintercept = 429.4*100, linetype = "dashed", color = "black", linewidth = 0.8) +
+    
+    labs(x = "",
+         y = "RSV copy # / organoid",
+         caption = paste("RSV", "Bact", "DPVI", sep = "\n"),
+         color = "Bacteria", shape = "HNO Line") +  
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 18, color = "black"),
+          plot.caption = element_text(size = 13, face = "bold", hjust = -0.13, vjust = 24),
+          axis.text.x = element_markdown(),
+          axis.text.y = element_text(color = "black"),
+          plot.margin = unit(c(0.1,0.1,-0.8,0.1), "in"))
+  
+  # Add stats layers only if stats_data is not NULL and has rows
+  if (!is.null(stats_data) && nrow(stats_data) > 0) {
+    plot <- plot +
+      geom_point(data = stats_data, aes(x = bacteria_label, y = pconc), shape = 3, size = 3) +
+      geom_errorbar(data = stats_data, width = 0.5,
+                    aes(x = bacteria_label, y = pconc, ymax = pconc_max, ymin = pconc_min))
+    
+    # Add significance asterisks for highlighted contrasts
+    contrast_sign <- contrasts %>%
+      filter(highlighted != "") %>%
+      mutate(plot = "*")
+    
+    if (nrow(contrast_sign) > 0) {
+      plot <- plot +
+        stat_pvalue_manual(contrast_sign, label = "plot", y.position = ypval, 
+                           step.increase = 0.03, tip.length = 0.01, bracket.shorten = 0.2, vjust = 0.6, bracket.size = 0.5)
+    }
+  }
+  
+  return(plot)
+}
+```
+
+#### Apical
+
+```{r}
+stats_Ap <- analysis_function(RSVbac, loc = "Ap", cutoff_pvalue = 0.05, cutoff_FC = 0)
+kable(stats_Ap$anova)
+kable(stats_Ap$random_effects)
+kable(stats_Ap$fixed_effects)
+kable(stats_Ap$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 7
+plot_Ap <- plot_function(RSVbac, loc = "Ap", stats_data = stats_Ap$transf_preds, contrasts = stats_Ap$contrasts, ypval = 10)
+plot_Ap
+ggsave(plot_Ap, filename = file.path(outputs_folder,  paste0(dataframeID, "_RSVqPCR_Ap.png")), width = 7, height = 5)
+saveRDS(plot_Ap, file = file.path(outputs_folder,  paste0(dataframeID, "_RSVqPCR_Ap.rds")))
+```
+
+#### Basal
+
+```{r}
+stats_Bas <- analysis_function(RSVbac, loc = "Bas", cutoff_pvalue = 0.05, cutoff_FC = 0)
+kable(stats_Bas$anova)
+```
+
+```{r}
+#| fig-height: 5
+#| fig-width: 7
+plot_Baso <- plot_function(RSVbac, loc = "Bas", stats_data = stats_Bas$transf_preds, contrasts = stats_Bas$contrasts, ypval = 8)
+plot_Baso
+ggsave(plot_Baso, filename = file.path(outputs_folder,  paste0(dataframeID, "_RSVqPCR_Baso.png")), width = 7, height = 5)
+saveRDS(plot_Baso, file = file.path(outputs_folder,  paste0(dataframeID, "_RSVqPCR_Baso.rds")))
+```
+
+## Spn Kinetics
+
+```{r}
+SpnKinetics <- avg_data %>%
+  filter(assay == "SpnKinetics") %>%
+  filter(virus == "T") 
+```
+
+### Stats and Plots
+
+Analysis with mixed-effects models, using `line` and `date` as random effects and the `time_inf` condition as fixed effect. Ratios are calculated relative to the corresponding NB value for each line, date, location, and time_inf Contrasts are calculated using emmeans with Holm adjustment for multiple comparisons against zero (this is the log2 ratio to NB).
+
+```{r}
+# Calculate ratio to the corresponding species = NB
+log2FC_conc_SpnKinetics <- SpnKinetics %>%
+  group_by(date, line, location, time_inf) %>%
+  reframe(date = date,
+          location = location,
+          line = line,
+          time_inf = time_inf,
+          species = species,
+          FC_conc = avg_conc / avg_conc[species == "NB"],
+          log2FC_conc = log2(FC_conc)) %>%
+  filter(species != "NB") 
+```
+
+```{r}
+# Mixed-effects model analysis function for kinetics data
+analysis_function_kinetics <- function(raw_data, loc, cutoff_pvalue) {
+  
+  # Filter data by location and convert time_inf to factor
+  data_stats <- raw_data %>%
+    filter(location == loc) %>%
+    mutate(time_inf = as.factor(time_inf)) 
+  
+  summary <- data_stats %>%
+    group_by(time_inf) %>%
+    summarise(
+      mean_FC = mean(FC_conc, na.rm = TRUE),
+      mean_log2FC = mean(log2FC_conc, na.rm = TRUE)
+    )
+  
+  # Mixed-effects model with random effects
+  model <- lmer(log2FC_conc ~ time_inf  
+                + (1|line) + (1|line:date), 
+                data = data_stats)
+  
+  # Extract random effects data and convert to dataframe
+  singular <- isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) 
+  
+  # If model is singular, rerun without random effects
+  if (singular) {
+    model <- lm(log2FC_conc ~ time_inf, data = data_stats)
+  }
+  
+  # Run ANOVA 
+  anova_result <- anova(model)
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term")
+  
+  # Generate contrasts for time_inf condition using emmeans with Holm adjustment vs zero
+  emmeans_model <- emmeans(model, ~ time_inf)
+  emmeans_test_vs_zero <- test(emmeans_model, null = 0, adjust = "holm")
+  
+  emmeans_test_vs_zero_df <- as.data.frame(summary(emmeans_test_vs_zero)) 
+  emmeans_test_vs_zero_df <- merge(emmeans_test_vs_zero_df, summary)
+  
+  return(list(
+    anova = anova_result,
+    random_effects = random_effects_df,
+    fixed_effects = fixed_effects_df,
+    emmeans_test_vs_zero = emmeans_test_vs_zero_df
+  ))
+}
+```
+
+```{r}
+plotK_function_log2FC <- function(raw_data, stats_results = NULL, loc) {
+  
+  # Filter raw data
+  plot_data <- raw_data %>%
+    filter(location == loc) %>%
+    mutate(time_inf = as.factor(time_inf)) 
+  
+  # Create base plot
+  plot <- ggplot() +
+    # Reference line at 0
+    geom_hline(yintercept = 0, linetype = "dashed", 
+               color = NB.colors.K, linewidth = 0.8) +
+    
+    # Add raw data points
+    geom_jitter(data = plot_data, 
+                aes(x = time_inf, y = log2FC_conc, 
+                    color = species, shape = line), 
+                width = 0.15, height = 0, size = 3, 
+                alpha = 0.85, stroke = 0.75, show.legend = TRUE) +
+    
+    # Add boxplot
+    geom_boxplot(data = plot_data, 
+                 aes(x = time_inf, y = log2FC_conc, color = species), 
+                 alpha = 0.3, outlier.shape = NA, show.legend = FALSE) +
+    
+    # Scales and colors
+    scale_color_manual(values = Spn.colors.K) +
+    scale_shape_manual(values = c(19, 17)) +
+    #scale_y_continuous(limits = c(-15, 1)) +
+    
+    # Labels
+    labs(x = "DPVI",
+         y = "log2(Spn/NB) RSV copy #",
+         color = "Bacteria", shape = "HNO Line") +
+    
+    # Theme
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(), 
+      text = element_text(size = 18, color = "black"),
+      axis.text.x = element_text(color = "black"),
+      axis.text.y = element_text(color = "black")
+    )
+  
+  # Conditionally add significance layers if stats_results are provided and valid
+  add_sig <- !is.null(stats_results) && "emmeans_test_vs_zero" %in% names(stats_results)
+  
+  if (add_sig) {
+    sig_df <- stats_results$emmeans_test_vs_zero
+    
+    # Align factor levels to plot_data$time_inf to ensure correct x positions
+    sig_df <- sig_df %>%
+      mutate(
+        time_inf = factor(time_inf, levels = levels(plot_data$time_inf)),
+        signif = case_when(p.value < 0.05 ~ "*", TRUE ~ ""),
+        yend   = case_when(p.value < 0.05 ~ emmean, TRUE ~ 0),
+        y_position = -1,  
+        x_numeric  = as.numeric(time_inf),
+        x_position = x_numeric + 0.4  # offset to avoid overlapping with box/points
+      )
+    
+    plot <- plot +
+      # Star placed just to the right of the segment
+      geom_text(data = sig_df,
+                aes(x = x_position + 0.08, y = y_position, label = signif),
+                size = 5, color = "black", fontface = "bold", vjust = 0.5) +
+      # Segment from 0 to emmean (or 0 if non-significant)
+      geom_segment(data = sig_df,
+                   aes(x = x_position, xend = x_position, y = 0, yend = yend),
+                   color = "black", linewidth = 0.8)
+  }
+  
+  return(plot)
+}
+```
+
+#### Apical
+
+```{r}
+stats_SpnKinetics_A <- analysis_function_kinetics(log2FC_conc_SpnKinetics, loc = "Ap", cutoff_pvalue = 0.05)
+stats_SpnKinetics_A$anova
+stats_SpnKinetics_A$random_effects
+stats_SpnKinetics_A$fixed_effects
+stats_SpnKinetics_A$emmeans_test_vs_zero
+```
+
+```{r}
+plot_SpnKinetics_A <- plotK_function_log2FC(log2FC_conc_SpnKinetics, stats_SpnKinetics_A, loc = "Ap")
+plot_SpnKinetics_A
+ggsave(plot_SpnKinetics_A, filename = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_SpnKinetics_Apical.png")), width = 7, height = 5)
+saveRDS(plot_SpnKinetics_A, file = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_SpnKinetics_Apical.rds")))
+```
+
+#### Basal
+
+```{r}
+# Not possible to run stats, as all data are zeros
+#stats_SpnKinetics_B <- analysis_function_kinetics(log2FC_conc_SpnKinetics, loc = "Bas", cutoff_pvalue = 0.05)
+```
+
+```{r}
+plot_SpnKinetics_B <- plotK_function_log2FC(log2FC_conc_SpnKinetics, loc = "Bas")
+plot_SpnKinetics_B
+ggsave(plot_SpnKinetics_B, filename = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_SpnKinetics_Basal.png")), width = 7, height = 5)
+saveRDS(plot_SpnKinetics_B, file = file.path(outputs_folder, paste0(dataframeID, "_RSVqPCR_SpnKinetics_Basal.rds")))
+```
+
+## Viral Stocks
+
+```{r}
+VirusStocks <- avg_data %>%
+  filter(assay == "stock") %>%
+  select(stock_name, avg_conc)
+kable(VirusStocks)
+```

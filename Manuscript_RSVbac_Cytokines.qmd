@@ -1,0 +1,1413 @@
+---
+format:
+  html:
+    suppress-bibliography: true
+---
+
+# Cytokines {.unnumbered}
+
+```{r}
+# loading packages
+library(tidyverse)
+library(skimr)
+library(ggtext)
+library(scales)
+library(lme4)
+library(lmerTest) 
+library(emmeans)
+library(knitr)
+library(ggpubr)
+library(patchwork)
+library(plotly)
+library(gridExtra)
+library(writexl)
+library(ggrepel)
+library(mixOmics)
+library(Cairo)
+```
+
+## Data Input
+
+All data inputs and outputs in this repo are relative to **FOLDER_PATH**. Please, save the provided data frames in RDS format in the `dataframes` folder.
+
+```{r}
+# Define directory paths based on R.environ
+FOLDER_PATH <- Sys.getenv("BOX_PATH_RSVBacPublication") 
+dataframes_folder <- file.path(FOLDER_PATH, "dataframes")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/Cytokines")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+```
+
+```{r}
+# Read the provided RDS file
+dataframeID <- "RSVbac"
+Cytokines_data <- readRDS(file.path(dataframes_folder, paste0(dataframeID, "_Cytokine_values.rds")))
+```
+
+## RSVbac 4 DPVI 
+
+```{r}
+# Filter data for 4 DPVI timepoint
+Cytokines_data_t4 <- Cytokines_data %>%
+  filter(time_inf == "4")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/Cytokines/4_DPVI")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+
+# Colors
+Bac.colors <- c("#a89de0", "#f54590", "#2e67f2")
+Bac.Vir_colors <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2", "#856141","#6855c9","#9f2d5e", "#1e439d")
+Bac.Vir_fill <- c("white", "white", "white", "white", "#856141","#6855c9","#9f2d5e", "#1e439d")
+```
+
+### LOD and Heatmap of log2FC
+
+This section performs quality control by calculating log2 fold changes (log2FC) relative to control samples (NB.NV), evaluating the proportion of samples above the detection limit for each cytokine-location combination, and assessing the dynamic range of responses. Cytokine-location groups with less than 25% detection across all samples are flagged as rejected and excluded from subsequent statistical analyses. Results are visualized through bar plots showing detection rates and dynamic ranges, a scatter plot examining the relationship between detection and range, and a heatmap displaying average log2FC values for each cytokine-location group. Samples highlighted in grey in the heatmap correspond to rejected cytokine-location groups (less than 25% of samples above detection limit).
+
+```{r}
+log2FC_analysis <- function(df) {
+  
+  # Step 1: Calculate log2FC relative to defined controls
+  df_log2FC <- df %>%
+    group_by(date, Cyto, Category, location, line, time_inf) %>%
+    reframe(
+      bacteria = bacteria[sample_type == "experimental"],
+      virus = virus[sample_type == "experimental"],
+      Bac.Vir = Bac.Vir[sample_type == "experimental"],
+      Bac.Vir_label = Bac.Vir_label[sample_type == "experimental"],
+      log2FC = log2(concentration[sample_type == "experimental"] / concentration[sample_type == "control"]),
+      log2ctl = log2(concentration[sample_type == "control"]),
+      below_LD = below_LD[sample_type == "experimental"],
+      above_LD = above_LD[sample_type == "experimental"]
+    )
+  
+  # Step 2: Calculate proportion of samples above detection limit
+  LD <- df %>%
+    group_by(Cyto, location) %>%
+    summarise(detected_all = 1 - mean(below_LD), .groups = 'drop') %>%
+    mutate(group_label = paste(Cyto, location, sep = "_")) %>%
+    relocate(group_label, .after = location)
+  
+  # Step 3: Plot detection limit proportions
+  plot_select_function <- function(data, x_var, title) {
+    ggplot(data = data, aes(x = reorder(group_label, {{x_var}}), y = {{x_var}}, fill = location)) +
+      geom_bar(stat = "identity", position = position_dodge()) + 
+      scale_y_continuous(expand = c(0, 0)) +
+      scale_fill_manual(values = c("coral", "steelblue1")) +
+      coord_flip() +
+      labs(title = title, x = "", y = "") +
+      theme_bw() +
+      theme(panel.grid = element_blank(),
+            text = element_text(size = 10))
+  }
+  
+  p_LD <- plot_select_function(LD, detected_all, "Proportion of samples above detection limit")
+  
+  # Step 4: Calculate range of log2FC values relative to the controls
+  range_log2FC <- df_log2FC %>%
+    group_by(Cyto, location) %>%
+    mutate(min = ifelse(is.na(log2FC), 0, min(log2FC, na.rm = TRUE))) %>%
+    mutate(max = max(log2FC, na.rm = TRUE)) %>%
+    mutate(range = max - min) %>%
+    summarise(range = mean(range, na.rm = TRUE), .groups = 'drop')
+  
+  # Step 5: Merge detection and range data
+  select_summary <- left_join(LD, range_log2FC, by = join_by(Cyto, location)) %>%
+    mutate(group_label = paste(Cyto, location, sep = "_"))
+  
+  # Step 6: Plot range
+  p_range <- plot_select_function(select_summary, range, "Range of log2FC values relative to the controls")
+  
+  # Step 7: Define rejected groups
+  select_summary <- select_summary %>%
+    mutate(group_rejected = as.factor(ifelse(detected_all < 0.25, TRUE, FALSE))) 
+  
+  # Step 8: Plot correlation
+  p_correlation_FC <- ggplot(select_summary, aes(x = range, y = detected_all, color = Cyto, shape = location)) +
+    geom_point(aes(size = group_rejected)) +
+    scale_size_manual(values = c(4, 2)) +
+    theme_bw() +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = 10)) +
+    labs(x = "log2FC range",
+         y = "Proportion of samples above detection limit (pg/mL values)")
+  
+  # Step 9: Merge rejection info
+  df_log2FC <- left_join(df_log2FC, select_summary, by = join_by(Cyto, location)) 
+  
+  # Step 10: Average log2FCs
+  Avg_df_log2FC <- df_log2FC %>%
+    group_by(Cyto, Category, location, virus, bacteria, Bac.Vir, Bac.Vir_label, group_rejected) %>%
+    summarize(avg_log2FC = mean(log2FC, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(value = ifelse(group_rejected == TRUE, NA, avg_log2FC))
+  
+  # Step 11: Create heatmap
+  plot_heatmap <- function(data) {
+    ggplot(data, aes(x = Cyto, y = Bac.Vir_label, fill = value)) +
+      geom_tile(color = "black") + 
+      facet_grid(location ~ Category , space = "free", scales = "free") +
+      scale_fill_gradient2(low = "#009ad1", high = "#AD1457",
+                           mid = "#fefbea", na.value = "grey",
+                           name = expression("Log" [2]*"FC")) +
+      labs(x = "", y = "") +
+      scale_y_discrete(expand = c(0,0), limits = rev) +
+      scale_x_discrete(expand = c(0,0), limits = rev) +
+      theme_bw() +
+      theme(panel.grid.major = element_blank(),
+            panel.grid.minor = element_blank(),
+            strip.background = element_rect(colour = "black", fill = NA),
+            strip.text.y = element_text(angle = -90, hjust = 0.5, size = 14, face = "bold"),
+            strip.text.x = element_text(size = 12),
+            axis.text.y = element_markdown(size = 14),
+            axis.text.x = element_text(size = 12, angle = 67, hjust = 1, colour = "black"),
+            legend.title = element_text(size = 14),
+            legend.text = element_text(size = 14),
+            panel.spacing = unit(4, 'pt')
+      )
+  }
+  
+  heatmap <- plot_heatmap(Avg_df_log2FC)
+  
+  # Return results
+  return(list(
+    df_log2FC = df_log2FC,
+    Avg_df_log2FC = Avg_df_log2FC,
+    select_summary = select_summary,
+    p_LD = p_LD,
+    p_range = p_range,
+    p_correlation_FC = p_correlation_FC,
+    heatmap = heatmap
+  ))
+}
+```
+
+```{r}
+# NB.NV considered as control samples for the log2FC calculation
+LD_data <- Cytokines_data_t4 %>% 
+  mutate(sample_type = if_else(bacteria == "NB" & virus == "NV", "control", "experimental")) 
+log2FC_results <- log2FC_analysis(LD_data)
+```
+
+```{r}
+#| fig-height: 8
+#| fig-width: 12
+log2FC_results$p_LD + log2FC_results$p_range
+```
+
+```{r}
+#| fig-height: 6
+#| fig-width: 6
+ggplotly(log2FC_results$p_correlation_FC)
+```
+
+```{r}
+#| fig-height: 4
+#| fig-width: 12
+log2FC_results$heatmap
+```
+
+```{r}
+# Save log2FC_results
+saveRDS(log2FC_results, file = file.path(outputs_folder, paste0(dataframeID, "_log2FC_results_t4.rds")))
+
+# Merging the rejection info with the original data
+Cytokines_data_t4 <- left_join(Cytokines_data_t4, log2FC_results$select_summary, by = join_by(Cyto, location)) 
+saveRDS(Cytokines_data_t4, file = file.path(dataframes_folder, paste0(dataframeID, "_Cytokine_values_t4.rds")))
+
+# Filtering out rejected groupings
+Cytokines_data_t4 <- Cytokines_data_t4 %>%
+  filter(group_rejected == FALSE)
+```
+
+### mixOmics Analysis
+
+#### Data Preparation
+
+Data is reshaped into a matrix format suitable for mixOmics analysis, with samples as rows and cytokines as columns. Each sample is uniquely identified by the combination of bacteria, virus, line, and date. Metadata (including experimental conditions and grouping variables) is separated from the concentration matrix. Apical and basal datasets are prepared separately for subsequent PCA and PLS-DA analyses.
+
+```{r}
+# Function to reshape data for mixOmics
+prepare_data <- function(data) {
+  # Create wide format: rows = samples, columns = cytokines
+  wide <- data %>%
+    # Create unique sample identifier for each replicate
+    mutate(sample_id = paste(bacteria, virus, line, date, sep = "_")) %>%
+    dplyr::select(sample_id, bacteria, virus, line, date, Cyto, concentration, Bac.Vir, Bac.Vir_label) %>%
+    pivot_wider(
+      id_cols = c(sample_id, bacteria, virus, line, date, Bac.Vir, Bac.Vir_label),
+      names_from = Cyto,
+      values_from = concentration
+    )
+  
+  # Separate metadata and data matrix
+  metadata <- wide %>% 
+    dplyr::select(sample_id, bacteria, virus, line, date, Bac.Vir, Bac.Vir_label)
+  
+  matrix_data <- wide %>% 
+    dplyr::select(-sample_id, -bacteria, -virus, -line, -date, -Bac.Vir, -Bac.Vir_label) %>% 
+    as.matrix()
+  
+  # Convert Bac.Vir to factor if not already
+  metadata$Bac.Vir <- factor(metadata$Bac.Vir)
+  metadata$Bac.Vir_label <- factor(metadata$Bac.Vir_label)
+  
+  return(list(matrix_data = matrix_data, metadata = metadata))
+}
+
+# Prepare apical and basal data
+data_A <- Cytokines_data_t4 %>% filter(location == "Apical")
+data_B <- Cytokines_data_t4 %>% filter(location == "Basal")
+mixOmics_data_A <- prepare_data(data_A)
+mixOmics_data_B <- prepare_data(data_B)
+```
+
+#### PCA Analysis
+
+Principal component analysis is performed to assess data structure and batch effects with a multilevel design that accounts for batch date effects. Variance explained by each component is visualized, along with PCA plots for the first 2 components, with points colored by treatment condition (bacteria \* virus combination), filled by virus presence/absence, and shaped by cell line. Data are mean-centered and scaled to unit variance prior to analysis.
+
+```{r}
+# Function 1: Explore variance explained by PCA components
+explore_pca <- function(mixomics_data, location_name, multilevel_column = NULL, max_ncomp = 10) {
+  
+  # Extract data
+  matrix_data <- mixomics_data$matrix_data
+  metadata <- mixomics_data$metadata
+  
+  # Handle multilevel input
+  multilevel_data <- if (!is.null(multilevel_column)) metadata[[multilevel_column]] else NULL
+  
+  # Run PCA
+  pca_result <- pca(matrix_data, 
+                    ncomp = max_ncomp,
+                    multilevel = multilevel_data,
+                    center = TRUE,
+                    scale = TRUE)
+  
+  # Explained variance
+  explained_var <- round(pca_result$prop_expl_var$X * 100, 2)
+  df_explained <- data.frame(Component = 1:max_ncomp, Variance = explained_var)
+  
+  # Create ggplot
+  plot <- ggplot(df_explained, aes(x = Component, y = Variance)) +
+    geom_bar(stat = "identity", fill = "springgreen4") +
+    geom_text(aes(label = paste0(Variance, "%")), 
+              vjust = -0.5, 
+              size = 3) +
+    scale_x_continuous(breaks = seq(min(df_explained$Component), max(df_explained$Component), by = 1)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 70)) +
+    theme_bw() +
+    theme(
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10, color = "black")
+    ) +
+    ggtitle(paste0("PCA Variance per Component (", location_name, ")")) +
+    ylab("Variance (%)") 
+  
+  return(plot)
+}
+
+# Function 2: Run and plot PCA with chosen parameters
+run_and_plot_pca <- function(mixomics_data, location_name, multilevel_column = NULL, 
+                             group_var, pch_var = "line", colors = NULL, fills = NULL, 
+                             ncomp = 2, comp_x = 1, comp_y = 2) {
+  
+  # Extract data
+  matrix_data <- mixomics_data$matrix_data
+  metadata <- mixomics_data$metadata
+  
+  # Handle multilevel input
+  multilevel_data <- if (!is.null(multilevel_column)) metadata[[multilevel_column]] else NULL
+  
+  # Get the grouping variable
+  group_variable <- metadata[[group_var]]
+  pch_variable <- metadata[[pch_var]]
+  
+  # Run PCA 
+  pca_result <- pca(matrix_data, 
+                    ncomp = ncomp,
+                    multilevel = multilevel_data,
+                    center = TRUE,
+                    scale = TRUE)
+  
+  # Extract scores for ggplot
+  scores <- as.data.frame(pca_result$variates$X)
+  
+  # Assign original pch variable
+  scores[[pch_var]] <- pch_variable
+  
+  # Assign original group variable with dots
+  scores[[group_var]] <- group_variable
+  
+  # Now relabel the group_var column (preserving factor levels if needed)
+  scores[[group_var]] <- factor(scores[[group_var]],
+                                levels = levels(factor(scores[[group_var]])),
+                                labels = gsub("\\.", " ", levels(factor(scores[[group_var]]))))
+  
+  # Get variance explained for axis labels
+  var_exp <- round(pca_result$prop_expl_var$X * 100, 2)
+  
+  # Create ggplot with fill for virus and color for Bac.Vir
+  plot <- ggplot(scores, aes(x = .data[[paste0("PC", comp_x)]], 
+                             y = .data[[paste0("PC", comp_y)]])) +
+    geom_point(aes(fill = .data[[group_var]], color = .data[[group_var]], shape = .data[[pch_var]]), 
+               size = 3, stroke = 1.5) +
+    scale_fill_manual(values = fills, name = "Condition") +
+    scale_color_manual(values = colors, name = "Condition") +
+    scale_shape_manual(values = c(21, 24), name = "Line") +  
+    scale_x_continuous(labels = function(x) sprintf("%.1f", x)) +  
+    scale_y_continuous(labels = function(x) sprintf("%.1f", x)) +  
+    theme_bw() +
+    theme(
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10, color = "black"),
+      legend.text = element_markdown(size = 10),
+      legend.position = "right"
+    ) +
+    labs(
+      title = paste0("PCA (", location_name, ")"),
+      x = paste0("PC", comp_x, " (", var_exp[comp_x], "%)"),
+      y = paste0("PC", comp_y, " (", var_exp[comp_y], "%)")
+    ) +
+    guides(
+      fill = guide_legend(override.aes = list(color = colors, shape = 22))
+    )
+  
+  return(plot)
+}
+```
+
+```{r}
+pca_explore_A_multilevel <- explore_pca(mixOmics_data_A, "Apical", multilevel_column = "date")
+pca_explore_B_multilevel <- explore_pca(mixOmics_data_B, "Basal", multilevel_column = "date")
+
+pca_A_BacVir_multilevel <- run_and_plot_pca(mixOmics_data_A, "Apical", multilevel_column = "date", group_var = "Bac.Vir_label", colors = Bac.Vir_colors, fills = Bac.Vir_fill)
+pca_B_BacVir_multilevel <- run_and_plot_pca(mixOmics_data_B, "Basal", multilevel_column = "date", group_var = "Bac.Vir_label", colors = Bac.Vir_colors, fills = Bac.Vir_fill)
+
+# Save PCA results
+saveRDS(pca_explore_A_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PCA_explore_A_multilevel_t4.rds")))
+saveRDS(pca_explore_B_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PCA_explore_B_multilevel_t4.rds")))
+saveRDS(pca_A_BacVir_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PCA_A_BacVir_multilevel_t4.rds")))
+saveRDS(pca_B_BacVir_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PCA_B_BacVir_multilevel_t4.rds")))
+```
+
+```{r}
+pca_B_BacVir_multilevel
+pca_A_BacVir_multilevel
+```
+
+
+#### PLS-DA Analysis
+
+Partial least squares discriminant analysis (PLS-DA) is performed to assess the separability of treatment groups based on cytokine profiles. Model performance is evaluated using 3-fold cross-validation repeated 50 times, with balanced error rate (BER) calculated using centroids distance classification. The optimal number of components is selected based on the minimum BER value across 3-fold cross-validation repeated 50 times. This cross-validation approach helps prevent overfitting while maximizing classification accuracy. Treatment condition (bacteria \* virus combination) serves as the grouping variable, with a multilevel design accounting for repeated measures across experimental dates. Score plots for multiple component pairs are generated (components 1 vs 2, 1 vs 3, and 2 vs 3), with points colored by treatment condition, filled by virus presence/absence, and shaped by cell line. Ellipses represent 95% confidence intervals around group centroids. Data are mean-centered and scaled to unit variance prior to analysis.
+
+```{r}
+# Function 1: Explore PLS-DA - tune to find optimal components
+explore_plsda <- function(mixomics_data, location_name, multilevel_column = NULL, max_ncomp = 10, group_var) {
+  
+  # Extract data
+  matrix_data <- mixomics_data$matrix_data
+  metadata <- mixomics_data$metadata
+  
+  # Get the grouping variable
+  variable <- metadata[[group_var]]
+  
+  # Handle multilevel input
+  multilevel_data <- if (!is.null(multilevel_column)) metadata[[multilevel_column]] else NULL
+  
+  # Initial PLS-DA
+  plsda_result <- plsda(matrix_data, 
+                        variable, 
+                        multilevel = multilevel_data,
+                        ncomp = max_ncomp, 
+                        scale = TRUE)
+  
+  # Cross-validation with M-fold
+  perf_plsda <- perf(plsda_result, 
+                     validation = "Mfold",
+                     dist = "centroids.dist",
+                     folds = 3,
+                     nrepeat = 50)
+  
+  # Optimal number of components
+  optimal_ncomp <- perf_plsda$choice.ncomp["BER", "centroids.dist"]
+  
+  # Extract BER values for centroids.dist
+  ber_data <- perf_plsda$error.rate$BER[, "centroids.dist"]
+  
+  # Create data frame for plotting
+  plot_data <- data.frame(
+    ncomp = 1:length(ber_data),
+    BER = ber_data
+  )
+  
+  # Create ggplot
+  perf_plot <- ggplot(plot_data, aes(x = ncomp, y = BER)) +
+    geom_line(color = "springgreen4", linewidth = 1) +
+    geom_point(color = "springgreen4", size = 3, shape = 18) +
+    geom_point(data = plot_data[optimal_ncomp, ], 
+               aes(x = ncomp, y = BER),
+               color = "springgreen4", fill = "springgreen", size = 4, shape = 23) +
+    labs(
+      title = paste0("PLS-DA Performance (", location_name, ")"),
+      x = "Number of Components",
+      y = "Classification Error Rate"
+    ) +
+    theme_bw() +
+    theme(
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10, color = "black")
+    ) +
+    scale_x_continuous(breaks = 1:max_ncomp)
+  
+  return(list(
+    optimal_ncomp = optimal_ncomp,
+    perf_plot = perf_plot
+  ))
+}
+
+# Function 2: Run and plot PLS-DA with chosen parameters
+run_and_plot_plsda <- function(mixomics_data, location_name, multilevel_column = NULL, 
+                               group_var, colors = NULL, fills = NULL, 
+                               ncomp = 2, comp_x = 1, comp_y = 2) {
+  
+  # Ensure at least 2 components for plotting
+  ncomp <- max(2, ncomp)
+  
+  # Extract data
+  matrix_data <- mixomics_data$matrix_data
+  metadata <- mixomics_data$metadata
+  
+  # Handle multilevel input
+  multilevel_data <- if (!is.null(multilevel_column)) metadata[[multilevel_column]] else NULL
+  
+  # Get the grouping variable
+  variable <- metadata[[group_var]]
+  
+  # Run PLS-DA
+  plsda_result <- plsda(matrix_data, 
+                        variable, 
+                        multilevel = multilevel_data,
+                        ncomp = ncomp, 
+                        scale = TRUE)
+  
+  # Extract variates (component scores)
+  variates <- plsda_result$variates$X
+  
+  # Create data frame for plotting
+  plot_data <- data.frame(
+    comp1 = variates[, comp_x],
+    comp2 = variates[, comp_y],
+    group = variable,
+    line = metadata$line,
+    virus = metadata$virus
+  )
+  
+  # Get explained variance
+  explained_var <- plsda_result$prop_expl_var$X
+  x_label <- paste0("Component ", comp_x, " (", 
+                    round(explained_var[comp_x] * 100, 2), "%)")
+  y_label <- paste0("Component ", comp_y, " (", 
+                    round(explained_var[comp_y] * 100, 2), "%)")
+  
+  # Create ggplot
+  plot <- ggplot(plot_data, aes(x = comp1, y = comp2)) +
+    geom_point(aes(fill = group, color = group, shape = line), 
+               size = 2, stroke = 1) +
+    stat_ellipse(aes(color = group), type = "norm", level = 0.95, linewidth = 1, show.legend = F) +
+    scale_fill_manual(values = fills, name = "Condition") +
+    scale_color_manual(values = colors, name = "Condition") +
+    scale_shape_manual(values = c(21, 24), name = "Line") +  
+    theme_bw() +
+    theme(
+      plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10, color = "black"),
+      legend.position = "right"
+    ) +
+    labs(
+      title = paste0("PLS-DA (", location_name, ")"),
+      x = x_label,
+      y = y_label
+    ) +
+    guides(
+      fill = guide_legend(override.aes = list(color = colors, shape = 22))
+    )
+  
+  # Return results
+  return(plot)
+}
+```
+
+```{r}
+plsda_explore_A_multilevel <- explore_plsda(mixOmics_data_A, "Apical", multilevel_column = "date", group_var = "Bac.Vir")
+plsda_explore_B_multilevel <- explore_plsda(mixOmics_data_B, "Basal", multilevel_column = "date", group_var = "Bac.Vir")
+
+plsda_A_results_multilevel_1vs2 <- run_and_plot_plsda(mixOmics_data_A, "Apical", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill, 
+                                                 ncomp = plsda_explore_A_multilevel$optimal_ncomp, comp_x = 1, comp_y = 2)
+plsda_A_results_multilevel_1vs3 <- run_and_plot_plsda(mixOmics_data_A, "Apical", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill, 
+                                                 ncomp = plsda_explore_A_multilevel$optimal_ncomp, comp_x = 1, comp_y = 3)
+plsda_A_results_multilevel_2vs3 <- run_and_plot_plsda(mixOmics_data_A, "Apical", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill, 
+                                                 ncomp = plsda_explore_A_multilevel$optimal_ncomp, comp_x = 2, comp_y = 3)
+plsda_B_results_multilevel_1vs2 <- run_and_plot_plsda(mixOmics_data_B, "Basal", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill,
+                                                 ncomp = plsda_explore_B_multilevel$optimal_ncomp, comp_x = 1, comp_y = 2)
+plsda_B_results_multilevel_1vs3 <- run_and_plot_plsda(mixOmics_data_B, "Basal", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill,
+                                                 ncomp = plsda_explore_B_multilevel$optimal_ncomp, comp_x = 1, comp_y = 3)
+plsda_B_results_multilevel_2vs3 <- run_and_plot_plsda(mixOmics_data_B, "Basal", multilevel_column = "date", group_var = "Bac.Vir", colors = Bac.Vir_colors, fills = Bac.Vir_fill,
+                                                 ncomp = plsda_explore_B_multilevel$optimal_ncomp, comp_x = 2, comp_y = 3)
+
+# Save PLS-DA results
+saveRDS(plsda_explore_A_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_explore_A_multilevel_t4.rds")))
+saveRDS(plsda_explore_B_multilevel, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_explore_B_multilevel_t4.rds")))
+saveRDS(plsda_A_results_multilevel_1vs2, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_A_multilevel_1vs2_t4.rds")))
+saveRDS(plsda_A_results_multilevel_1vs3, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_A_multilevel_1vs3_t4.rds")))
+saveRDS(plsda_A_results_multilevel_2vs3, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_A_multilevel_2vs3_t4.rds")))
+saveRDS(plsda_B_results_multilevel_1vs2, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_B_multilevel_1vs2_t4.rds")))
+saveRDS(plsda_B_results_multilevel_1vs3, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_B_multilevel_1vs3_t4.rds")))
+saveRDS(plsda_B_results_multilevel_2vs3, file.path(outputs_folder, paste0(dataframeID, "_PLSDA_B_multilevel_2vs3_t4.rds")))
+```
+
+### Stats and Individual Plots (pg/mL)
+
+#### Handle missing values
+
+This section summarizes the missing values in the dataset by bacteria-virus and cell line groups. It then filters out any rows with missing concentration values to prepare for statistical analysis.
+
+```{r}
+# Summary of missing values
+Summary <- Cytokines_data_t4 %>%
+  group_by(location, bacteria, virus, line) %>%
+  summarise(
+    missing = sum(is.na(concentration)),
+    total = n()
+  ) %>%
+  mutate(percent_missing = round(missing / total * 100, 2))
+kable(Summary)
+
+# Filter NA in concentration
+Stats_values <- Cytokines_data_t4 %>%
+  filter(!is.na(concentration)) %>%
+  arrange(desc(range))
+```
+
+#### Statistical Analysis
+
+This section performs univariate statistical analysis for each cytokine-location group separately using linear mixed-effects models. For each group, cytokine concentrations (log-transformed) are modeled as a function of bacteria treatment, virus treatment, and their interaction, with random effects for cell line and the cell line \* date interaction to account for the nested repeated measures design. If the model is singular (typically due to zero variance for the line:date random effect), it is refitted with only date as a random effect. Model predictions and 95% confidence intervals are back-transformed to the original scale (pg/mL) for visualization.
+
+Pairwise contrasts are computed for:
+
+-   Simple effects of bacteria (comparing bacteria treatments within each virus level)
+
+-   Simple effects of virus (comparing virus treatments within each bacteria level)
+
+-   Interaction effects (testing whether the virus effect differs between bacteria treatments, e.g., does RSV + Bacteria differ from RSV + No Bacteria by more than RSV alone differs from No Infection?)
+
+```{r}
+stats_function <- function(values_data, each_group) {
+  
+  # Subset the data
+  data_subset <- values_data %>%
+    filter(group_label == each_group) 
+  
+  # Set NB as reference level for bacteria
+  data_subset$bacteria <- relevel(factor(data_subset$bacteria), ref = "NB")
+  
+  # First run linear mixed-effects model with random effects
+  model <- lmer(log(concentration) ~ bacteria * virus 
+                + (1|line) + (1|line:date), 
+                data = data_subset)
+  
+  # Extract random effects data and convert to dataframe
+  singular = isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) %>%
+    mutate(group_label = each_group) 
+  
+  # If model is singular, rerun linear mixed-effects model with only date as random effect
+  if (singular) {
+    model <- lmer(log(concentration) ~ bacteria * virus 
+                  + (1|date), 
+                  data = data_subset)
+  }
+  
+  # Run ANOVA and extract pvalues
+  anova <- anova(model)
+  bacteria_pvalue <- anova$`Pr(>F)`[1]
+  virus_pvalue <- anova$`Pr(>F)`[2]
+  interact_pvalue <- anova$`Pr(>F)`[3]
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term") %>%  
+    mutate(group_label = each_group)
+  
+  # Generate all individual contrasts without pvalue adjustment
+  emmeans_model <- emmeans(model, ~ bacteria * virus)
+  emmeans_bacteria <- pairs(emmeans_model, simple = "bacteria", adjust = "none")
+  emmeans_virus <- pairs(emmeans_model, simple = "virus", adjust = "none")
+  
+  # Extract virus contrasts from emmeans_model and format the dataframe
+  contrasts_virus_df <- as.data.frame(summary(emmeans_virus)) %>%
+    mutate(contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    mutate(group_label = each_group,
+           anova_contrast = virus_pvalue,
+           anova_interact = interact_pvalue) %>%
+    separate(contrast, into = c("virus1", "virus2"), sep = "-") %>%
+    mutate(condition1 = paste(bacteria, virus1, sep = "."),
+           condition2 = paste(bacteria, virus2, sep = "."),
+           contrast = paste(condition1, condition2, sep = " - ")) %>%
+    dplyr::select(-c(bacteria, virus1, virus2)) %>%
+    relocate(contrast)
+  
+  contrasts_virus_df$group1 <- values_data$Bac.Vir_label_symbols[match(contrasts_virus_df$condition1, values_data$Bac.Vir)]
+  contrasts_virus_df$group2 <- values_data$Bac.Vir_label_symbols[match(contrasts_virus_df$condition2, values_data$Bac.Vir)]
+  
+  # Extract bacteria contrasts from emmeans_model and format the dataframe
+  contrasts_bacteria_df <- as.data.frame(summary(emmeans_bacteria)) %>%
+    mutate(contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    mutate(group_label = each_group,
+           anova_contrast = bacteria_pvalue,
+           anova_interact = interact_pvalue) %>%
+    separate(contrast, into = c("bacteria1", "bacteria2"), sep = "-") %>%
+    mutate(condition1 = paste(bacteria1, virus, sep = "."),
+           condition2 = paste(bacteria2, virus, sep = "."),
+           contrast = paste(condition1, condition2, sep = " - ")) %>%
+    dplyr::select(-c(virus, bacteria1, bacteria2)) %>%
+    relocate(contrast)
+  
+  contrasts_bacteria_df$group1 <- values_data$Bac.Vir_label_symbols[match(contrasts_bacteria_df$condition1, values_data$Bac.Vir)]
+  contrasts_bacteria_df$group2 <- values_data$Bac.Vir_label_symbols[match(contrasts_bacteria_df$condition2, values_data$Bac.Vir)]
+  
+  # Generate interaction contrasts.This tests: does the virus effect differ between bacteria treatments?
+  # Specifically: (Bac.X + Virus) - (Bac.X + No Virus) vs (Control + Virus) - (Control + No Virus)
+  emmeans_interaction <- contrast(emmeans_model, 
+                                   interaction = c("pairwise", "pairwise"), 
+                                   by = NULL, 
+                                   adjust = "none")
+  
+  contrasts_interaction_df <- as.data.frame(summary(emmeans_interaction)) %>%
+    mutate(contrast = as.character(bacteria_pairwise),
+           contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    mutate(group_label = each_group,
+           anova_contrast = interact_pvalue,
+           anova_interact = interact_pvalue,
+           condition1 = NA_character_,
+           condition2 = NA_character_,
+           group1 = NA_character_,
+           group2 = NA_character_) %>%
+    dplyr::select(-bacteria_pairwise, -virus_pairwise) %>%
+    relocate(contrast)
+  
+  # Combine contrasts dataframes
+  contrasts_df <- rbind(contrasts_bacteria_df, contrasts_virus_df, contrasts_interaction_df)
+  
+  # Adds predictions based on fixed effects, averaged over random effects. It gives a population estimate
+  data_subset <- cbind(data_subset, predval = predict(model, re.form = NA, se.fit = TRUE))
+  
+  # Backtransform the predicted values and CIs
+  transf_preds_df <- data_subset %>% group_by(bacteria, virus, group_label) %>%
+    summarise(mean.predval.fit = mean(predval.fit),
+              mean.predval.se.fit = mean(predval.se.fit),
+              mean.concentration = mean(concentration),
+              .groups = 'drop') %>%
+    mutate(pconcentr = exp(mean.predval.fit),
+           pconcentr_min = exp(mean.predval.fit - 2*mean.predval.se.fit),
+           pconcentr_max = exp(mean.predval.fit + 2*mean.predval.se.fit)) %>%
+    mutate(condition = interaction(bacteria, virus, sep = "."))
+  
+  transf_preds_df$Bac.Vir_label_symbols <- values_data$Bac.Vir_label_symbols[match(transf_preds_df$condition, values_data$Bac.Vir)]
+  
+  return(list(anova = anova,
+              emmeans_interaction = emmeans_interaction,
+              random_effects = random_effects_df,
+              fixed_effects = fixed_effects_df, 
+              contrasts = contrasts_df,
+              transf_preds = transf_preds_df))
+}
+```
+
+```{r, eval=FALSE}
+#Example use for a specific Cytokine-location group
+each_group = "CXCL10_Apical"  
+stats_function(Stats_values, each_group)
+```
+
+```{r, include=FALSE}
+# Apply the function to each unique group label and combine results into a list
+stats_list <- purrr::map(unique(Stats_values$group_label), function(group) {
+  cat("Processing group:", group, "\n")  # Add this line to print the group name
+  stats_function(Stats_values, group)
+})
+
+# Combine all fixed effects dataframes in the list into a single dataframe
+stats_fixed_effects <- bind_rows(purrr::map(stats_list, pluck, "fixed_effects"))
+
+# Combine all random effects dataframes in the list into a single dataframe
+stats_random_effects <- bind_rows(purrr::map(stats_list, pluck, "random_effects"))
+
+# Combine all contrasts dataframes in the list into a single dataframe
+stats_contrasts <- bind_rows(purrr::map(stats_list, pluck, "contrasts"))
+
+# Combine all backtransformed predicted values dataframes in the list into a single dataframe
+stats_transf_preds <- bind_rows(purrr::map(stats_list, pluck, "transf_preds"))
+```
+
+P-values are adjusted for multiple comparisons across all contrasts within significant ANOVA effects using the false discovery rate (FDR) method.
+
+```{r}
+# Selection of conditions to perform contrast analysis based on anova
+stats_contrasts_selection <- stats_contrasts %>%
+  filter(anova_contrast < 0.05)
+
+# Adjust across all Cyto-Location groups using FDR
+stats_contrasts_selection <- stats_contrasts_selection %>%
+  mutate(adj.p.FDR = p.adjust(p.value, method = "fdr")) %>%
+  mutate(sign.FDR = ifelse(adj.p.FDR < 0.05, T, F)) %>%
+  mutate(sign = case_when(
+    adj.p.FDR < 0.05 ~ "*",
+    TRUE ~ ""  
+  ))
+stats_contrasts_selection$adj.p.FDR = format(stats_contrasts_selection$adj.p.FDR, digits = 2, scientific = TRUE)
+
+# Calculate fold-change values for each contrast and highlight data for plotting brackets
+stats_contrasts_selection <- stats_contrasts_selection %>%
+  ungroup() %>%
+  left_join(dplyr::select(stats_transf_preds, condition, group_label, pconcentr), by = join_by(group_label == group_label, condition1 == condition)) %>%
+  left_join(dplyr::select(stats_transf_preds, condition, group_label, pconcentr), by = join_by(group_label == group_label, condition2 == condition), suffix = c(".1", ".2")) %>%
+  mutate(FC = pconcentr.1 / pconcentr.2,
+         log2FC = log2(FC),
+         highlighted = case_when(
+           sign.FDR == TRUE & log2FC >= 1 ~ "+",
+           sign.FDR == TRUE & log2FC <= -1 ~ "-",
+           TRUE ~ ""
+         ))
+```
+
+#### Plotting Individual Cyto-location Groups
+
+Results are visualized for each cytokine-location group with observed data points, model predictions with confidence intervals, and significance brackets for contrasts with FDR-adjusted p \< 0.05.
+
+```{r}
+# Function to plot each individual Cyto-location group using pg/mL data
+plot_function <- function(true_data, stats_data, contrasts, random, fixed, each_group) {
+  
+  # Subset data
+  true_data <- true_data %>%
+    filter(group_label == each_group) 
+  stats_data <- stats_data %>%
+    filter(group_label == each_group) 
+  contrasts <- contrasts %>%
+    filter(group_label == each_group) 
+  random <- random %>%
+    filter(group_label == each_group) 
+  fixed <- fixed %>%
+    filter(group_label == each_group) 
+  
+  # Plot
+  plot <- ggplot() +
+    
+    # True values in pg/mL
+    geom_jitter(data = true_data, 
+                aes(x = Bac.Vir_label_symbols, y = concentration, 
+                    fill = Bac.Vir, color = Bac.Vir, 
+                    shape = line),
+                width = 0.15, size = 3, stroke = 0.75, show.legend = TRUE) +   
+    
+    scale_fill_manual(values = Bac.Vir_fill) +
+    scale_color_manual(values = Bac.Vir_colors) +
+    scale_shape_manual(values = c(21,24)) +
+    
+    # Predictions from the model transformed into pg/mL
+    geom_point(data = stats_data, aes(x = Bac.Vir_label_symbols, y = pconcentr), shape = 3, size = 1) +
+    geom_errorbar(data = stats_data, aes(x = Bac.Vir_label_symbols,
+                                         y = pconcentr,
+                                         ymin = pconcentr_min,
+                                         ymax = pconcentr_max),
+                  width = .15) +
+    
+    # Add sections for RSV and No RSV
+    geom_vline(xintercept = 4.5, colour = "grey70", linetype = 'dotted') +
+    
+    # General style
+    scale_y_log10() +
+    scale_x_discrete(expand = c(0,0.5)) +
+    labs(title = each_group,
+         x = "",
+         y = "pg/mL",
+         fill = "Condition", color = "Condition", shape = "HNO Line") +  
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          legend.text = element_markdown(),
+          text = element_text(size = 12),
+          plot.title = element_markdown(),
+          axis.text.y = element_text(color = "black"),
+          axis.text.x = element_markdown()) +
+    guides(fill = guide_legend(override.aes = list(color = Bac.Vir_colors, shape = 22)))
+  
+  # Add significance asterisks for highlighted contrasts
+  contrast_sign <- contrasts %>%
+    filter(highlighted != "") %>%
+    mutate(plot = "")
+  
+  if (nrow(contrast_sign) > 0) {
+    plot <- plot +
+      stat_pvalue_manual(contrast_sign, label = "plot", y.position = log10(max(true_data$concentration, na.rm = TRUE)), 
+                         step.increase = 0.04, tip.length = 0.01, bracket.shorten = 0.2, vjust = 0.6, bracket.size = 0.5)
+  }
+  
+  # Conditionally arrange plot and p-values table if contrasts is not NULL
+  Tmin <- ttheme_minimal()
+  if (!is.null(contrasts) && nrow(contrasts) > 0) {
+    contrasts <- contrasts %>%
+      ungroup() %>%
+      dplyr::select(-estimate, -SE, -t.ratio, -group_label, -condition1, -condition2, -sign.FDR, -p.value, -group1, -group2)
+    
+    panel <- ggarrange(plot + theme(plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "in")), 
+                       tableGrob(random, theme = Tmin, rows = NULL),
+                       tableGrob(fixed, theme = Tmin, rows = NULL),
+                       tableGrob(contrasts, theme = Tmin, rows = NULL), 
+                       ncol = 1, heights = c(0.3, 0.08, 0.15, 0.35))
+  } else {
+    panel <- ggarrange(plot + theme(plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "in")), 
+                       tableGrob(random, theme = Tmin, rows = NULL),
+                       tableGrob(fixed, theme = Tmin, rows = NULL),
+                       NULL,
+                       ncol = 1, heights = c(0.3, 0.08, 0.15, 0.35))
+  }
+  return(list(each_group, plot, panel))
+} 
+```
+
+```{r, eval=FALSE}
+#| fig-height: 16
+#| fig-width: 10
+# Example use for a specific Cytokine-location group
+each_group = "CXCL10_Apical"   
+plot_function(Stats_values, stats_transf_preds, stats_contrasts_selection, stats_random_effects, stats_fixed_effects, each_group)
+```
+
+```{r}
+plots_list <- purrr::map(unique(Stats_values$group_label), ~plot_function(true_data = Stats_values, stats_data = stats_transf_preds, contrasts = stats_contrasts_selection, fixed = stats_fixed_effects, random = stats_random_effects, .x))
+```
+
+```{r}
+## Save outputs
+write_xlsx(stats_fixed_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_fixed_effects_t4.xlsx")))
+write_xlsx(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t4.xlsx")))
+write_xlsx(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.xlsx")))
+write_xlsx(stats_transf_preds, file.path(outputs_folder, paste0(dataframeID, "_stats_transf_preds_t4.xlsx")))
+saveRDS(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.rds")))
+
+# Create subfolder for individual files
+plots_folder <- file.path(outputs_folder, "individual_plots")
+if (!file.exists(plots_folder)) {
+  dir.create(plots_folder, recursive = TRUE)
+}
+
+# Save all multiple plots/tables on individual pdfs
+for (i in seq_along(plots_list)) {
+  plotname <- plots_list[[i]][[1]]
+  ggsave(filename = paste0(plots_folder, "/", dataframeID, "_Cyto_Boxplot_t4_", plotname, ".png"),
+         plot = plots_list[[i]][[3]], width = 12, height = 17, dpi = 300)
+}
+
+# Save all plot figures as an R object
+saveRDS(plots_list, file.path(outputs_folder, paste0(dataframeID, "_plots_list_t4.rds")))
+```
+
+```{r}
+#| include=FALSE
+# Create a combined multi-page PDF with all plots
+CairoPDF(file = file.path(outputs_folder, paste0(dataframeID, "_Cyto_Boxplots_pgml_t4.pdf")),
+         width = 12, height = 17)
+walk(plots_list, ~ print(.x[[3]])) 
+dev.off()
+```
+
+#### Interaction Plots
+
+This section visualizes bacteria \* virus interaction effects through volcano plots for apical and basal compartments separately. Each point represents a cytokine, with the x-axis showing the interaction effect size and the y-axis showing statistical significance (-log10 of FDR-adjusted p-value).
+
+Only interactions comparing each bacteria to NB are shown, with different bacteriatypes distinguished by color. Cytokines with FDR-adjusted p \< 0.05 and absolute effect size ≥ 1 (representing \~2.7-fold difference in RSV effect between bacteria and control) are labeled.
+
+The interaction tests whether the RSV effect (RSV vs NV) differs between each bacteria treatment and control (NB):
+
+-   **Positive estimates**: The difference between RSV and NV is larger for this bacteria compared to the difference between RSV and NV for NB alone.
+-   **Negative estimates**: The difference between RSV and NV is smaller for this bacteria compared to the difference between RSV and NV for NB alone.
+
+```{r}
+stats_contrasts_interaction <- stats_contrasts_selection %>%
+  filter(is.na(condition1) & 
+         is.na(condition2) & 
+         is.na(group1) & 
+         is.na(group2)) %>%
+  filter(str_detect(contrast, "^NB-")) %>%
+  mutate(
+    contrast = str_remove(contrast, "^NB-"),
+    contrast = factor(contrast, levels = c("Spn", "Hin", "Dpi"))
+  ) %>%
+  separate(group_label, into = c("cytokine", "location"), sep = "_", remove = FALSE)
+```
+
+```{r}
+#| fig-height: 6
+#| fig-width: 12
+
+# Function to create volcano plot by location
+create_volcano_plot <- function(data, location_filter, xmin, xmax, ymin, ymax) {
+  
+  data_filtered <- data %>%
+    filter(location == location_filter)
+  
+  ggplot(data_filtered, aes(x = estimate, y = -log10(as.numeric(adj.p.FDR)), color = contrast)) +
+    geom_point(size = 2, alpha = 0.7, shape = 8, stroke = 1.2) +
+    scale_color_manual(values = Bac.colors) +
+    scale_x_continuous(expand = c(0, 0), limits = c(xmin, xmax), breaks = seq(floor(xmin), ceiling(xmax), by = 1)) +
+    scale_y_continuous(expand = c(0, 0), limits = c(ymin, ymax)) +
+    geom_hline(yintercept = -log10(1), color = "gray60") +
+    geom_vline(xintercept = 0, color = "gray60") +
+    geom_text_repel(data = data_filtered %>% 
+                      filter(as.numeric(adj.p.FDR) < 0.05) %>%
+                      filter(estimate <= -1.25 | estimate >= 1.25),
+                    aes(label = cytokine),
+                    size = 4,
+                    min.segment.length = 0,
+                    box.padding = 0.5,
+                    show.legend = FALSE) +
+    labs(x = "Effect Size (Estimate)", 
+         y = "-log10(FDR p-value)",
+         title = paste0("Interaction Effects (", location_filter, ")"),
+         color = "Bacteria") +
+    theme_bw() +
+    theme(legend.position = "right",
+          plot.margin = margin(t = 10, r = 10, b = 10, l = 10),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 10, color = "black")
+    )
+}
+
+# Create plots for apical and basal
+plot_interac_apical <- create_volcano_plot(stats_contrasts_interaction, "Apical", xmin = -4.5, xmax = 4.5, ymin = 0, ymax = 5.5)
+plot_interac_basal <- create_volcano_plot(stats_contrasts_interaction, "Basal", xmin = -4.5, xmax = 4.5, ymin = 0, ymax = 5.5)
+
+ggarrange(plot_interac_apical, plot_interac_basal, ncol = 2)
+
+# Save interaction volcano plots
+saveRDS(plot_interac_apical, file.path(outputs_folder, paste0(dataframeID, "_Interaction_Volcano_Apical_t4.rds")))
+saveRDS(plot_interac_basal, file.path(outputs_folder, paste0(dataframeID, "_Interaction_Volcano_Basal_t4.rds")))
+```
+
+Example interpretation of the interaction effect calculation for Dpi CXCL10_Apical:
+
+These are the mean predicted concentration values (pg/mL) for each condition:
+
+```{r}
+NB.NV <- 313.028488
+Dpi.NV <- 3.850455
+NB.RSV <- 5493.162761
+Dpi.RSV <- 3519.681558
+```
+
+The log fold-changes for virus effect within each bacteria treatment are:
+
+```{r}
+logFC_NB <- log(NB.RSV / NB.NV)
+logFC_NB
+
+logFC_Dpi <- log(Dpi.RSV / Dpi.NV)
+logFC_Dpi
+```
+
+This means that when there is no bacteria RSV increases CXCL10_Apical production by a log fold-change of `r logFC_NB`, while for Dpi, RSV increases CXCL10_Apical by a log fold-change of `r logFC_Dpi`. The interaction effect visualized on the plots (Dpi vs. NB) is then calculated as the difference in log fold-changes, that in this case is equal to:
+
+```{r}
+logFC_interaction <- logFC_Dpi - logFC_NB
+logFC_interaction
+```
+
+## RSVbac 0 DPVI 
+
+```{r}
+# Filter data for 4 DPVI timepoint
+Cytokines_data_t0 <- Cytokines_data %>%
+  filter(time_inf == "0")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/Cytokines/0_DPVI")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+
+# Colors
+Bac.Vir_colors <- c("#CC9564", "#a89de0", "#f54590", "#2e67f2")
+Bac.Vir_fill <- c("white", "white", "white", "white")
+```
+
+### LOD and Heatmap of log2FC
+
+This section performs quality control by calculating log2 fold changes (log2FC) relative to control samples (NB.NV), evaluating the proportion of samples above the detection limit for each cytokine-location combination, and assessing the dynamic range of responses. Cytokine-location groups with less than 25% detection across all samples are flagged as rejected and excluded from subsequent statistical analyses. Results are visualized through bar plots showing detection rates and dynamic ranges, a scatter plot examining the relationship between detection and range, and a heatmap displaying average log2FC values for each cytokine-location group. Samples highlighted in grey in the heatmap correspond to rejected cytokine-location groups (less than 25% of samples above detection limit).
+
+```{r}
+# NB.NV considered as control samples for the log2FC calculation
+LD_data <- Cytokines_data_t0 %>% 
+  mutate(sample_type = if_else(bacteria == "NB" & virus == "NV", "control", "experimental")) 
+log2FC_results <- log2FC_analysis(LD_data)
+```
+
+```{r}
+#| fig-height: 8
+#| fig-width: 12
+log2FC_results$p_LD + log2FC_results$p_range
+```
+
+```{r}
+#| fig-height: 6
+#| fig-width: 6
+ggplotly(log2FC_results$p_correlation_FC)
+```
+
+```{r}
+#| fig-height: 4
+#| fig-width: 12
+log2FC_results$heatmap
+```
+
+```{r}
+# Save log2FC_results
+saveRDS(log2FC_results, file = file.path(outputs_folder, paste0(dataframeID, "_log2FC_results_t0.rds")))
+
+# Merging the rejection info with the original data
+Cytokines_data_t0 <- left_join(Cytokines_data_t0, log2FC_results$select_summary, by = join_by(Cyto, location)) 
+saveRDS(Cytokines_data_t0, file = file.path(dataframes_folder, paste0(dataframeID, "_Cytokine_values_t0.rds")))
+
+# Filtering out rejected groupings
+Cytokines_data_t0 <- Cytokines_data_t0 %>%
+  filter(group_rejected == FALSE)
+```
+
+### Stats and Individual Plots (pg/mL)
+
+#### Handle missing values
+
+This section summarizes the missing values in the dataset by bacteria-virus and cell line groups. It then filters out any rows with missing concentration values to prepare for statistical analysis.
+
+```{r}
+# Summary of missing values
+Summary <- Cytokines_data_t0 %>%
+  group_by(location, bacteria, virus, line) %>%
+  summarise(
+    missing = sum(is.na(concentration)),
+    total = n()
+  ) %>%
+  mutate(percent_missing = round(missing / total * 100, 2))
+kable(Summary)
+
+# Filter NA in concentration
+Stats_values <- Cytokines_data_t0 %>%
+  filter(!is.na(concentration)) %>%
+  arrange(desc(range))
+```
+
+#### Statistical Analysis
+
+This section performs univariate statistical analysis for each cytokine-location group separately using linear mixed-effects models. For each group, cytokine concentrations (log-transformed) are modeled as a function of bacteria treatment, with random effects for cell line and the cell line \* date interaction to account for the nested repeated measures design. If the model is singular (typically due to zero variance for the line:date random effect), it is refitted with only date as a random effect. Model predictions and 95% confidence intervals are back-transformed to the original scale (pg/mL) for visualization. Pairwise contrasts are computed for simple effects of bacteria (comparing bacteria treatments within the non-virus level)
+
+```{r}
+stats_function <- function(values_data, each_group) {
+  
+  # Subset the data
+  data_subset <- values_data %>%
+    filter(group_label == each_group) 
+  
+  # Set NB as reference level for bacteria
+  data_subset$bacteria <- relevel(factor(data_subset$bacteria), ref = "NB")
+  
+  # First run linear mixed-effects model with random effects
+  model <- lmer(log(concentration) ~ bacteria 
+                + (1|line) + (1|line:date), 
+                data = data_subset)
+  
+  # Extract random effects data and convert to dataframe
+  singular = isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) %>%
+    mutate(group_label = each_group) 
+  
+  # If model is singular, rerun linear mixed-effects model with only date as random effect
+  if (singular) {
+    model <- lmer(log(concentration) ~ bacteria 
+                  + (1|date), 
+                  data = data_subset)
+  }
+  
+  # Run ANOVA and extract pvalues
+  anova <- anova(model)
+  bacteria_pvalue <- anova$`Pr(>F)`[1]
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term") %>%  
+    mutate(group_label = each_group)
+  
+  # Generate all individual contrasts without pvalue adjustment
+  emmeans_model <- emmeans(model, ~ bacteria)
+  emmeans_bacteria <- pairs(emmeans_model, simple = "bacteria", adjust = "none")
+  
+  # Extract bacteria contrasts from emmeans_model and format the dataframe
+  contrasts_bacteria_df <- as.data.frame(summary(emmeans_bacteria)) %>%
+    mutate(contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    mutate(group_label = each_group,
+           anova_contrast = bacteria_pvalue) %>%
+    separate(contrast, into = c("bacteria1", "bacteria2"), sep = "-") %>%
+    mutate(condition1 = paste(bacteria1, "NV", sep = "."),
+           condition2 = paste(bacteria2, "NV", sep = "."),
+           contrast = paste(condition1, condition2, sep = " - ")) %>%
+    dplyr::select(-c(bacteria1, bacteria2)) %>%
+    relocate(contrast)
+  
+  contrasts_bacteria_df$group1 <- values_data$Bac.Vir_label_symbols[match(contrasts_bacteria_df$condition1, values_data$Bac.Vir)]
+  contrasts_bacteria_df$group2 <- values_data$Bac.Vir_label_symbols[match(contrasts_bacteria_df$condition2, values_data$Bac.Vir)]
+  
+  # Combine contrasts dataframes #Only bacteria contrasts here but we keep the structure from other analyses
+  contrasts_df <- rbind(contrasts_bacteria_df)
+  
+  # Adds predictions based on fixed effects, averaged over random effects. It gives a population estimate
+  data_subset <- cbind(data_subset, predval = predict(model, re.form = NA, se.fit = TRUE))
+  
+  # Backtransform the predicted values and CIs
+  transf_preds_df <- data_subset %>% group_by(bacteria, virus, group_label) %>%
+    summarise(mean.predval.fit = mean(predval.fit),
+              mean.predval.se.fit = mean(predval.se.fit),
+              mean.concentration = mean(concentration),
+              .groups = 'drop') %>%
+    mutate(pconcentr = exp(mean.predval.fit),
+           pconcentr_min = exp(mean.predval.fit - 2*mean.predval.se.fit),
+           pconcentr_max = exp(mean.predval.fit + 2*mean.predval.se.fit)) %>%
+    mutate(condition = interaction(bacteria, virus, sep = "."))
+  
+  transf_preds_df$Bac.Vir_label_symbols <- values_data$Bac.Vir_label_symbols[match(transf_preds_df$condition, values_data$Bac.Vir)]
+  
+  return(list(anova = anova,
+              random_effects = random_effects_df,
+              fixed_effects = fixed_effects_df, 
+              contrasts = contrasts_df,
+              transf_preds = transf_preds_df))
+}
+```
+
+```{r, eval=FALSE}
+#Example use for a specific Cytokine-location group
+each_group = "CXCL10_Apical"  
+stats_function(Stats_values, each_group)
+```
+
+```{r, include=FALSE}
+# Apply the function to each unique group label and combine results into a list
+stats_list <- purrr::map(unique(Stats_values$group_label), function(group) {
+  cat("Processing group:", group, "\n")  # Add this line to print the group name
+  stats_function(Stats_values, group)
+})
+
+# Combine all fixed effects dataframes in the list into a single dataframe
+stats_fixed_effects <- bind_rows(purrr::map(stats_list, pluck, "fixed_effects"))
+
+# Combine all random effects dataframes in the list into a single dataframe
+stats_random_effects <- bind_rows(purrr::map(stats_list, pluck, "random_effects"))
+
+# Combine all contrasts dataframes in the list into a single dataframe
+stats_contrasts <- bind_rows(purrr::map(stats_list, pluck, "contrasts"))
+
+# Combine all backtransformed predicted values dataframes in the list into a single dataframe
+stats_transf_preds <- bind_rows(purrr::map(stats_list, pluck, "transf_preds"))
+```
+
+P-values are adjusted for multiple comparisons across all contrasts within significant ANOVA effects using the false discovery rate (FDR) method.
+
+```{r}
+# Selection of conditions to perform contrast analysis based on anova
+stats_contrasts_selection <- stats_contrasts %>%
+  filter(anova_contrast < 0.05)
+
+# Adjust across all Cyto-Location groups using FDR
+stats_contrasts_selection <- stats_contrasts_selection %>%
+  mutate(adj.p.FDR = p.adjust(p.value, method = "fdr")) %>%
+  mutate(sign.FDR = ifelse(adj.p.FDR < 0.05, T, F)) %>%
+  mutate(sign = case_when(
+    adj.p.FDR < 0.05 ~ "*",
+    TRUE ~ ""  
+  ))
+stats_contrasts_selection$adj.p.FDR = format(stats_contrasts_selection$adj.p.FDR, digits = 2, scientific = TRUE)
+
+# Calculate fold-change values for each contrast and highlight data for plotting brackets
+stats_contrasts_selection <- stats_contrasts_selection %>%
+  ungroup() %>%
+  left_join(dplyr::select(stats_transf_preds, condition, group_label, pconcentr), by = join_by(group_label == group_label, condition1 == condition)) %>%
+  left_join(dplyr::select(stats_transf_preds, condition, group_label, pconcentr), by = join_by(group_label == group_label, condition2 == condition), suffix = c(".1", ".2")) %>%
+  mutate(FC = pconcentr.1 / pconcentr.2,
+         log2FC = log2(FC),
+         highlighted = case_when(
+           sign.FDR == TRUE & log2FC >= 1 ~ "+",
+           sign.FDR == TRUE & log2FC <= -1 ~ "-",
+           TRUE ~ ""
+         ))
+```
+
+#### Plotting Individual Cyto-location Groups
+
+Results are visualized for each cytokine-location group with observed data points, model predictions with confidence intervals, and significance brackets for contrasts with FDR-adjusted p \< 0.05.
+
+```{r}
+# Function to plot each individual Cyto-location group using pg/mL data
+plot_function <- function(true_data, stats_data, contrasts, random, fixed, each_group) {
+  
+  # Subset data
+  true_data <- true_data %>%
+    filter(group_label == each_group) 
+  stats_data <- stats_data %>%
+    filter(group_label == each_group) 
+  contrasts <- contrasts %>%
+    filter(group_label == each_group) 
+  random <- random %>%
+    filter(group_label == each_group) 
+  fixed <- fixed %>%
+    filter(group_label == each_group) 
+  
+  # Plot
+  plot <- ggplot() +
+    
+    # True values in pg/mL
+    geom_jitter(data = true_data, 
+                aes(x = Bac.Vir_label_symbols, y = concentration, 
+                    fill = Bac.Vir, color = Bac.Vir, 
+                    shape = line),
+                width = 0.15, size = 3, stroke = 0.75, show.legend = TRUE) +   
+    
+    scale_fill_manual(values = Bac.Vir_fill) +
+    scale_color_manual(values = Bac.Vir_colors) +
+    scale_shape_manual(values = c(21,24)) +
+    
+    # Predictions from the model transformed into pg/mL
+    geom_point(data = stats_data, aes(x = Bac.Vir_label_symbols, y = pconcentr), shape = 3, size = 1) +
+    geom_errorbar(data = stats_data, aes(x = Bac.Vir_label_symbols,
+                                         y = pconcentr,
+                                         ymin = pconcentr_min,
+                                         ymax = pconcentr_max),
+                  width = .15) +
+    
+    # General style
+    scale_y_log10() +
+    scale_x_discrete(expand = c(0,0.5)) +
+    labs(title = each_group,
+         x = "",
+         y = "pg/mL",
+         fill = "Condition", color = "Condition", shape = "HNO Line") +  
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          legend.text = element_markdown(),
+          text = element_text(size = 12),
+          plot.title = element_markdown(),
+          axis.text.y = element_text(color = "black"),
+          axis.text.x = element_markdown()) +
+    guides(fill = guide_legend(override.aes = list(color = Bac.Vir_colors, shape = 22)))
+  
+  # Add significance asterisks for highlighted contrasts
+  contrast_sign <- contrasts %>%
+    filter(highlighted != "") %>%
+    mutate(plot = "")
+  
+  if (nrow(contrast_sign) > 0) {
+    plot <- plot +
+      stat_pvalue_manual(contrast_sign, label = "plot", y.position = log10(max(true_data$concentration, na.rm = TRUE)), 
+                         step.increase = 0.04, tip.length = 0.01, bracket.shorten = 0.2, vjust = 0.6, bracket.size = 0.5)
+  }
+  
+  # Conditionally arrange plot and p-values table if contrasts is not NULL
+  Tmin <- ttheme_minimal()
+  if (!is.null(contrasts) && nrow(contrasts) > 0) {
+    contrasts <- contrasts %>%
+      ungroup() %>%
+      dplyr::select(-estimate, -SE, -t.ratio, -group_label, -condition1, -condition2, -sign.FDR, -p.value, -group1, -group2)
+    
+    panel <- ggarrange(plot + theme(plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "in")), 
+                       tableGrob(random, theme = Tmin, rows = NULL),
+                       tableGrob(fixed, theme = Tmin, rows = NULL),
+                       tableGrob(contrasts, theme = Tmin, rows = NULL), 
+                       ncol = 1, heights = c(0.4, 0.08, 0.15, 0.2))
+  } else {
+    panel <- ggarrange(plot + theme(plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "in")), 
+                       tableGrob(random, theme = Tmin, rows = NULL),
+                       tableGrob(fixed, theme = Tmin, rows = NULL),
+                       NULL,
+                       ncol = 1, heights = c(0.4, 0.08, 0.15, 0.2))
+  }
+  return(list(each_group, plot, panel))
+} 
+```
+
+```{r, eval=FALSE}
+#| fig-height: 16
+#| fig-width: 10
+# Example use for a specific Cytokine-location group
+each_group = "CXCL10_Apical"   
+plot_function(Stats_values, stats_transf_preds, stats_contrasts_selection, stats_random_effects, stats_fixed_effects, each_group)
+```
+
+```{r}
+plots_list <- purrr::map(unique(Stats_values$group_label), ~plot_function(true_data = Stats_values, stats_data = stats_transf_preds, contrasts = stats_contrasts_selection, fixed = stats_fixed_effects, random = stats_random_effects, .x))
+```
+
+```{r}
+##| eval: false
+## Save outputs
+write_xlsx(stats_fixed_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_fixed_effects_t0.xlsx")))
+write_xlsx(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t0.xlsx")))
+write_xlsx(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.xlsx")))
+write_xlsx(stats_transf_preds, file.path(outputs_folder, paste0(dataframeID, "_stats_transf_preds_t0.xlsx")))
+saveRDS(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.rds")))
+
+# Create subfolder for individual files
+plots_folder <- file.path(outputs_folder, "individual_plots")
+if (!file.exists(plots_folder)) {
+  dir.create(plots_folder, recursive = TRUE)
+}
+
+# Save all multiple plots/tables on individual pdfs
+for (i in seq_along(plots_list)) {
+  plotname <- plots_list[[i]][[1]]
+  ggsave(filename = paste0(plots_folder, "/", dataframeID, "_Cyto_Boxplot_t0_", plotname, ".png"),
+         plot = plots_list[[i]][[3]], width = 12, height = 12, dpi = 300)
+}
+
+# Save all plot figures as an R object
+saveRDS(plots_list, file.path(outputs_folder, paste0(dataframeID, "_plots_list_t0.rds")))
+```
+
+```{r}
+#| include=FALSE
+# Create a combined multi-page PDF with all plots
+CairoPDF(file = file.path(outputs_folder, paste0(dataframeID, "_Cyto_Boxplots_pgml_t0.pdf")),
+         width = 12, height = 17)
+walk(plots_list, ~ print(.x[[3]])) 
+dev.off()
+```

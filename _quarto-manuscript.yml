@@ -1,0 +1,20 @@
+project:
+  output-dir: docs
+    
+execute:
+  echo: true
+  eval: true
+  message: false
+  warning: false
+  
+book:  
+  chapters:
+    - index.qmd
+    - Manuscript_RSVbac_CFUs.qmd
+    - Manuscript_RSVbac_PFUs.qmd
+    - Manuscript_RSVbac_ViralTiters.qmd
+    - Manuscript_RSVbac_Caspase.qmd
+    - Manuscript_RSVbac_RNASeqHNOs.qmd
+    - Manuscript_RSVbac_Cytokines.qmd
+    - Manuscript_RSVbac_RSession.qmd
+    - references.qmd

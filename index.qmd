@@ -1,0 +1,52 @@
+# Overview {.unnumbered}
+
+::: {.callout-note icon="false"}
+## This repository contains all analysis code and documentation for the manuscript:
+
+***Streptococcus pneumoniae*** **colonization most strongly modulates human nasal epithelial responses to respiratory syncytial virus infection compared to *Haemophilus influenzae* or *Dolosigranulum pigrum***
+:::
+
+## Repository Structure and Data Availability
+
+All analyses are provided as individual Quarto (`.qmd`) notebooks, which can be rendered independently. Each notebook reads processed `.rds` files from the `dataframes/` folder and generates publication-quality figures and statistical outputs.
+
+To reproduce the analyses:
+
+-   Download the `dataframes/` folder and place it in your working directory.
+-   Download all `.qmd` notebooks from the repository and keep them in the same directory.
+-   Install required R packages listed in [R Session Info](Manuscript_RSVbac_RSession.html).
+-   Render the notebooks using Quarto to generate figures and results.
+
+The directory structure should look like this:
+
+```         
+your_project/
+├── dataframes/          # Downloaded data files
+└── [analysis notebooks saved as .qmd files]
+```
+
+Set Environment Variable as follows in R:
+
+```         
+Sys.setenv(BOX_PATH_RSVBacPublication = "/path/to/your_project")
+```
+
+Alternatively, add to your `.Renviron` file:
+
+```         
+BOX_PATH_RSVBacPublication=/path/to/your_project
+```
+
+## Analysis Notebooks
+
+1\. [Quantification of bacterial CFUs](Manuscript_RSVbac_CFUs.html)
+
+2\. [RSV PFU quantification](Manuscript_RSVbac_PFUs.html)
+
+3\. [RSV qRT-PCR quantification](Manuscript_RSVbac_ViralTiters.html)
+
+4\. [Caspase Assay](Manuscript_RSVbac_Caspase.html)
+
+5\. [RNASeq Analysis](Manuscript_RSVbac_RNASeqHNOs.html)
+
+6\. [Cytokine Analysis](Manuscript_RSVbac_Cytokines.html)

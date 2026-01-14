@@ -1,0 +1,266 @@
+---
+format:
+  html:
+    suppress-bibliography: true
+---
+
+# Bacterial CFUs {.unnumbered}
+
+```{r}
+# loading packages
+library(tidyverse)
+library(skimr)
+library(ggtext)
+library(scales)
+library(lme4)
+library(lmerTest) 
+library(emmeans)
+library(knitr)
+library(ggpubr)
+```
+
+## Data Input 
+
+All data inputs and outputs in this repo are relative to **FOLDER_PATH**. Please, save the provided data frames in RDS format in the `dataframes` folder. 
+```{r}
+# Define directory paths based on R.environ
+FOLDER_PATH <- Sys.getenv("BOX_PATH_RSVBacPublication") 
+dataframes_folder <- file.path(FOLDER_PATH, "dataframes")
+
+# Create subfolder for output files
+outputs_folder <- file.path(FOLDER_PATH, "outputs/CFUs")
+if (!file.exists(outputs_folder)) {
+  dir.create(outputs_folder, recursive = TRUE)
+}
+
+# Colors
+Bac.colors <- c("#a89de0", "#f54590", "#2e67f2")
+```
+
+```{r}
+# Read the provided RDS file
+dataframeID <- "RSVbac"
+CFU_data <- readRDS(file.path(dataframes_folder, paste0(dataframeID, "_CFU_values.rds")))
+```
+
+## Statistics and Plots
+
+Analysis with a mixed-effects model with random effects for `line` and `date` and the interaction of fixed effects for `species` and the `Time.Virus` combined condition. If the model is singular, it is rerun with only `date` as random effect. The contrasts are calculated using emmeans with Holm adjustment for the virus comparisons for each bacteria. Predicted values are backtransformed to CFU scale for plotting. Highlighted contrasts are those with a cutoff p-value of 0.05.
+
+```{r}
+# Function to analyze the data and plot stats
+analysis_function <- function(data, conditions_label_col, combined_col, cutoff_pvalue, cutoff_FC) {
+  
+  # Mixed-effects model with random effects
+  model <- lmer(log(NewCFU) ~ species * Time.Virus 
+                + (1|line) + (1|line:date), 
+                data = data)
+  
+  # Extract random effects data and convert to dataframe
+  singular = isSingular(model)
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2)) %>%
+    mutate(singular = singular) 
+  
+  # If model is singular, rerun with only date as random effect
+  if (singular) {
+    model <- lmer(log(NewCFU) ~ species * Time.Virus 
+                  + (1|date), 
+                  data = data)
+  }
+  
+  # Run ANOVA and extract pvalues
+  anova <- anova(model)
+  anova_df <- as.data.frame(anova) 
+  
+  # Extract fixed effects coefficients and convert to dataframe
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term")
+  
+  # Generate contrasts for Time.Virus comparisons within each bacteria using emmeans with Holm adjustment
+  emmeans_model <- emmeans(model, ~ species * Time.Virus)
+  emmeans_Time.Virus <- pairs(emmeans_model, simple = "Time.Virus", adjust = "holm")
+  
+  # Extract virus contrasts from emmeans_model and format the dataframe
+  contrasts_df <- as.data.frame(summary(emmeans_Time.Virus)) %>%
+    mutate(contrast = str_replace_all(contrast, "\\s+", "")) %>%
+    separate(contrast, into = c("Time.Virus1", "Time.Virus2"), sep = "-") %>%
+    mutate(condition1 = paste(species, Time.Virus1, sep = "."),
+           condition2 = paste(species, Time.Virus2, sep = "."),
+           contrast = paste(condition1, condition2, sep = " - ")) %>%
+    select(-species, Time.Virus1, Time.Virus2) %>%
+    relocate(contrast)
+  
+  # Use the specified columns for group labels and matching
+  contrasts_df$group1 <- data[[conditions_label_col]][match(contrasts_df$condition1, data[[combined_col]])]
+  contrasts_df$group2 <- data[[conditions_label_col]][match(contrasts_df$condition2, data[[combined_col]])]
+  
+  # Adds predictions based on fixed effects, averaged over random effects. It gives a population estimate
+  data <- cbind(data, predval = predict(model,re.form = NA, se.fit = TRUE))
+  
+  # Backtransform the predicted values and CIs
+  transf_preds_df <- data %>% 
+    group_by(!!sym(combined_col), Time.Virus, !!sym(conditions_label_col), species, virus) %>%
+    summarise(mean.predval.fit = mean(predval.fit),
+              mean.predval.se.fit = mean(predval.se.fit),
+              mean.CFU = mean(NewCFU),
+              .groups = 'drop') %>%
+    mutate(pCFUs = exp(mean.predval.fit),
+           pCFUs_min = exp(mean.predval.fit - 2*mean.predval.se.fit),
+           pCFUs_max = exp(mean.predval.fit + 2*mean.predval.se.fit)) %>%
+    mutate(condition = interaction(species, Time.Virus, sep = "."))
+  
+  # Calculate fold-change values for each contrast and highlight the most relevant is pvalue < cutoff and FC > cutoff
+  contrasts_df <- contrasts_df %>%
+    ungroup() %>%
+    left_join(select(transf_preds_df, condition, pCFUs), by = join_by(condition1 == condition)) %>%
+    left_join(select(transf_preds_df, condition, pCFUs), by = join_by(condition2 == condition), suffix = c(".1", ".2")) %>%
+    mutate(FC = pCFUs.1 / pCFUs.2,
+           log10FC = log10(FC),
+           FC = if_else(FC < 1, 1 / FC, -FC),
+           highlighted = case_when(
+             p.value < cutoff_pvalue & abs(log10FC) >= cutoff_FC ~ "*",
+             TRUE ~ "")) %>%
+    select(contrast, p.value, pCFUs.1, pCFUs.2, FC, log10FC, highlighted, condition1, condition2, group1, group2)
+  
+  return(list(anova = anova,
+              random_effects = random_effects_df,
+              fixed_effects = fixed_effects_df, 
+              contrasts = contrasts_df,
+              transf_preds = transf_preds_df))
+}
+```
+
+```{r}
+# Function to plot the CFUs using the statistical model
+plot_function <- function(true_data, stats_data, contrasts, conditions_label_col, 
+                          ymax_exp, ypval, caption_text) {
+  
+  # Plot
+  plot <- ggplot() +
+    
+    geom_jitter(data = true_data, 
+                aes(x = .data[[conditions_label_col]], y = NewCFU, color = species,
+                    shape = line),
+                width = 0.2, size = 3, alpha = 0.85, stroke = 0.75, show.legend = TRUE) +   
+    
+    scale_color_manual(values = Bac.colors) +
+    scale_shape_manual(values = c(19,17)) +
+    
+    scale_y_log10(limits = c(NA, 10^ymax_exp),
+                  breaks = 10^(1:ymax_exp), 
+                  labels = trans_format("log10", math_format(10^.x))) +
+    
+    geom_point(data = stats_data, aes(x = .data[[conditions_label_col]], y = pCFUs), shape = 3, size = 3) +
+    geom_errorbar(data = stats_data, width = 0.5,
+                  aes(x = .data[[conditions_label_col]], y = pCFUs, ymax = pCFUs_max, ymin = pCFUs_min)) +
+    geom_hline(yintercept = 7.5, linetype = "dashed", color = "black", linewidth = 0.8) +
+    
+    # General style
+    scale_x_discrete(expand = c(0,0.5)) +
+    labs(x = "",
+         y = "Bacterial CFUs / organoid",
+         caption = caption_text,
+         color = "Bacteria", shape = "HNO Line") +  
+    theme_bw() +
+    theme(panel.grid = element_blank(), 
+          legend.text = element_markdown(),
+          text = element_text(size = 18, color = "black"),
+          plot.caption = element_text(size = 13, face = "bold", hjust = -0.13, vjust = 24),
+          axis.text.x = element_markdown(),
+          axis.text.y = element_text(color = "black"),
+          plot.margin = unit(c(0.1,0.1,-0.8,0.1), "in"))
+  
+  # Add significance asterisks for highlighted contrasts
+  contrast_sign <- contrasts %>%
+    filter(highlighted != "") %>%
+    mutate(plot = "*")
+  
+  if (nrow(contrast_sign) > 0) {
+    plot <- plot +
+      stat_pvalue_manual(contrast_sign, label = "plot", y.position = ypval, 
+                         step.increase = 0.04, tip.length = 0.01, bracket.shorten = 0.2, vjust = 0.6, bracket.size = 0.5)
+  }
+  
+  return(plot)
+} 
+```
+
+### RSV Samples without Inoculum
+
+```{r}
+CFU_data_RSV <- CFU_data %>%
+  filter(timecol != 0) %>%
+  droplevels()
+
+# Create a combined condition variable for Time and Virus with timeinf
+CFU_data_RSV <- CFU_data_RSV %>%
+  mutate(Time.Virus = factor(paste(timeinf, virus, sep = "."))) 
+```
+
+```{r}
+all_stats_RSV <- analysis_function(data = CFU_data_RSV, cutoff_pvalue = 0.05, cutoff_FC = 0,
+                                   conditions_label_col = "label_dpi_conditions", combined_col = "Combined_dpi")
+kable(all_stats_RSV$anova)
+kable(all_stats_RSV$random_effects)
+kable(all_stats_RSV$fixed_effects)
+kable(all_stats_RSV$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+```
+
+```{r}
+#| fig-height: 6
+#| fig-width: 7
+CFU_plot <- plot_function(true_data = CFU_data_RSV, stats_data = all_stats_RSV$transf_preds, 
+                          contrasts = all_stats_RSV$contrasts, ymax_exp = 9, ypval = 7.75, 
+                          conditions_label_col = "label_dpi_conditions", 
+                          caption_text = paste("RSV", "Bact", "DPVI", sep = "\n"))
+CFU_plot
+
+ggsave(CFU_plot, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFUs.png")), width = 7, height = 6)
+saveRDS(CFU_plot, file = file.path(outputs_folder,  paste0(dataframeID, "_CFUs.rds")))
+```
+
+### Non-RSV Samples with Inoculum
+
+Inoculum CFU values at time 0h for each species and line:
+
+```{r}
+CFU_data %>%
+  filter(timecol == 0) %>%
+  group_by(species, line) %>%
+  skim(NewCFU) %>%
+  yank("numeric")
+```
+
+```{r}
+CFU_data_nonRSV <- CFU_data %>%
+  filter(virus == "F") %>%
+  droplevels()
+
+# Create a combined condition variable for Time and Virus with timecol
+CFU_data_nonRSV <- CFU_data_nonRSV %>%
+  mutate(Time.Virus = factor(paste(timecol, virus, sep = ".")))
+```
+
+```{r}
+all_stats_nonRSV <- analysis_function(CFU_data_nonRSV, cutoff_pvalue = 0.05, cutoff_FC = 0,
+                                      conditions_label_col = "label_dpc_conditions", combined_col = "Combined_dpc")
+kable(all_stats_nonRSV$anova)
+kable(all_stats_nonRSV$random_effects)
+kable(all_stats_nonRSV$fixed_effects)
+kable(all_stats_nonRSV$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+```
+
+```{r}
+#| fig-height: 6
+#| fig-width: 7
+
+CFU_plot_nonRSV <- plot_function(true_data = CFU_data_nonRSV, stats_data = all_stats_nonRSV$transf_preds, 
+                                 contrasts = all_stats_nonRSV$contrasts, ymax_exp = 10, ypval = 8,
+                                 conditions_label_col = "label_dpc_conditions",
+                                 caption_text = paste("RSV", "Bact", "DPC", sep = "\n"))
+CFU_plot_nonRSV
+ggsave(CFU_plot_nonRSV, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFUs_nonRSV.png")), width = 7, height = 6)
+saveRDS(CFU_plot_nonRSV, file = file.path(outputs_folder,  paste0(dataframeID, "_CFUs_nonRSV.rds")))
+```
+
