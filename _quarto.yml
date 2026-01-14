@@ -1,0 +1,38 @@
+project:
+  type: book
+  
+format:
+  html:
+    theme: sandstone
+    code-tools: true
+    toc: true
+    toc-location: left
+    embed-resources: true
+    page-layout: full
+
+book:
+  title: "RSVBac"
+  author:
+    - name: Leah Kafer
+    - name: Isabel F. Escapa
+  date: last-modified
+  sidebar:
+    style: docked
+    background: "light"
+    collapse-level: 1
+  navbar:
+    background: "primary"
+    search: true
+    right:
+      - icon: github
+        href: https://github.com/KLemonLab/RSVBac_Manuscript
+        aria-label: GitHub
+
+  reader-mode: true  
+
+bibliography: references.bib
+csl: references_style.csl
+    
+profile:
+  default: manuscript
+  
