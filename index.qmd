@@ -37,6 +37,12 @@ Alternatively, add to your `.Renviron` file:
 BOX_PATH_RSVBacPublication=/path/to/your_project
 ```
 
+The whole project can be rendered using RStudio's "Render" or "Built" options or in the terminal via:
+
+```
+quarto render
+```
+
 ## Analysis Notebooks
 
 1\. [Quantification of bacterial CFUs](Manuscript_RSVbac_CFUs.html)
