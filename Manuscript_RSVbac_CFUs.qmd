@@ -121,7 +121,7 @@ analysis_function <- function(data, conditions_label_col, combined_col, cutoff_p
            highlighted = case_when(
              p.value < cutoff_pvalue & abs(log10FC) >= cutoff_FC ~ "*",
              TRUE ~ "")) %>%
-    select(contrast, p.value, pCFUs.1, pCFUs.2, FC, log10FC, highlighted, condition1, condition2, group1, group2)
+    select(contrast, condition1, condition2, p.value, pCFUs.1, pCFUs.2, FC, log10FC, highlighted, group1, group2)
   
   return(list(anova = anova,
               random_effects = random_effects_df,
@@ -205,6 +205,7 @@ kable(all_stats_RSV$anova)
 kable(all_stats_RSV$random_effects)
 kable(all_stats_RSV$fixed_effects)
 kable(all_stats_RSV$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+saveRDS(all_stats_RSV, file = file.path(outputs_folder,  paste0(dataframeID, "_CFU_stats.rds")))
 ```
 
 ```{r}
@@ -216,8 +217,8 @@ CFU_plot <- plot_function(true_data = CFU_data_RSV, stats_data = all_stats_RSV$t
                           caption_text = paste("RSV", "Bact", "DPVI", sep = "\n"))
 CFU_plot
 
-ggsave(CFU_plot, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFUs.png")), width = 7, height = 6)
-saveRDS(CFU_plot, file = file.path(outputs_folder,  paste0(dataframeID, "_CFUs.rds")))
+ggsave(CFU_plot, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFU.png")), width = 7, height = 6)
+saveRDS(CFU_plot, file = file.path(outputs_folder,  paste0(dataframeID, "_CFU.rds")))
 ```
 
 ### Non-RSV Samples with Inoculum
@@ -249,6 +250,7 @@ kable(all_stats_nonRSV$anova)
 kable(all_stats_nonRSV$random_effects)
 kable(all_stats_nonRSV$fixed_effects)
 kable(all_stats_nonRSV$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+saveRDS(all_stats_nonRSV, file = file.path(outputs_folder,  paste0(dataframeID, "_CFU_nonRSV_stats.rds")))
 ```
 
 ```{r}
@@ -260,7 +262,7 @@ CFU_plot_nonRSV <- plot_function(true_data = CFU_data_nonRSV, stats_data = all_s
                                  conditions_label_col = "label_dpc_conditions",
                                  caption_text = paste("RSV", "Bact", "DPC", sep = "\n"))
 CFU_plot_nonRSV
-ggsave(CFU_plot_nonRSV, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFUs_nonRSV.png")), width = 7, height = 6)
-saveRDS(CFU_plot_nonRSV, file = file.path(outputs_folder,  paste0(dataframeID, "_CFUs_nonRSV.rds")))
+ggsave(CFU_plot_nonRSV, filename = file.path(outputs_folder,  paste0(dataframeID, "_CFU_nonRSV.png")), width = 7, height = 6)
+saveRDS(CFU_plot_nonRSV, file = file.path(outputs_folder,  paste0(dataframeID, "_CFU_nonRSV.rds")))
 ```
 

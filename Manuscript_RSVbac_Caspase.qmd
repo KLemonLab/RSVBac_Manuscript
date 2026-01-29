@@ -245,7 +245,7 @@ analysis_function <- function(data, cutoff_pvalue, cutoff_FC) {
            highlighted = case_when(
              p.value < cutoff_pvalue & abs(log2FC) >= cutoff_FC ~ "*",
              TRUE ~ "")) %>%
-    select(contrast, p.value, pconc.1, pconc.2, FC, log2FC, highlighted, condition1, condition2, group1, group2)
+    select(contrast, condition1, condition2, p.value, pconc.1, pconc.2, FC, log2FC, highlighted, group1, group2)
   
   return(list(anova = anova,
               random_effects = random_effects_df,
@@ -261,6 +261,7 @@ kable(all_stats$anova)
 kable(all_stats$random_effects)
 kable(all_stats$fixed_effects)
 kable(all_stats$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+saveRDS(all_stats, file.path(outputs_folder,  paste0(dataframeID, "_Caspase_stats.rds")))
 ```
 
 ### Plots

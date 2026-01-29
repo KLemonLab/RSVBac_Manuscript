@@ -25,6 +25,9 @@ library(vegan)
 library(fgsea)
 library(ggh4x)
 library(Cairo)
+library(lme4)
+library(lmerTest) 
+library(emmeans)
 ```
 
 ## Data Input
@@ -144,20 +147,20 @@ We performed an unbiased (blind = TRUE, independent of the dds design formula) t
 
 ```{r, fig.width=8, fig.height=6, fig.align="center"}
 vsd_exp <- vst(dds_exp, blind = TRUE)
-pcaData <- plotPCA(vsd_exp, intgroup = c("species", "virus", "line", "seq_run"), returnData = TRUE)
+pcaData <- plotPCA(vsd_exp, intgroup = c("species", "virus", "line", "seq_run"), returnData = TRUE) %>%
+  mutate(line = paste0("HNO", line))
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 
 pPCA <- ggplot(pcaData, aes(PC1, PC2)) +
-  geom_point(aes(fill = Bac.Vir_label, color = Bac.Vir_label, 
-                 shape = interaction(line, seq_run, sep = "_", lex.order = T )), 
+  geom_point(aes(fill = Bac.Vir_label, color = Bac.Vir_label, shape = line), 
              size = 4, stroke = 1) +  
-  scale_shape_manual(values = c(24, 25, 21)) + 
+  scale_shape_manual(values = c(21, 24)) + 
   scale_color_manual(values = Bac.Vir_colors) + 
   scale_fill_manual(values = Bac.Vir_fill) +
   ggtitle("Principal Component Analysis (blind = TRUE)") +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
-  labs(fill = "Condition", color = "Condition", shape = "Line Seq_Run") +
+  labs(fill = "Condition", color = "Condition", shape = "HNO Line") +
   theme_bw(base_size = 14) +
   theme(
     panel.grid.major = element_blank(),
@@ -238,8 +241,6 @@ vst_matrix <- assays(dds)[["vst"]]
 
 We implemented the adaptive shrinkage method (ashr[@stephens2016]) to obtain more accurate and stable estimates of log₂ fold changes (LFC) for each gene across contrasts. This approach mitigates the impact of low counts and high variability, which can otherwise lead to exaggerated LFC estimates. Shrinkage was performed using the `lfcShrink()` function from the **DESeq2** package.
 
-For all the analyzed contrasts, we applied a shrunken log₂ fold change cutoff of ±2, corresponding to at least an 4-fold change in expression between conditions. This is a stringent threshold that highlights genes with the most pronounced differential expression. 
-
 ```{r}
 # Function to run a contrast analysis and generate plots
 run_contrast_analysis <- function(dds, FC_cutoff, contrast_name, 
@@ -255,11 +256,6 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
   } else {
     stop("Please provide either a 'contrast' or a 'coef'.")
   }
-
-  # MA plot DESeq2 (original static version)
-  plotMA(resLFC, main = contrast_name, alpha = 0.05, ylab = "log2 Fold Change")
-  abline(h = c(-FC_cutoff, FC_cutoff), col = "red", lty = 2)
-  ma_plot_DESeq <- recordPlot()
 
   # Results table
   res_df <- as.data.frame(res)
@@ -282,17 +278,18 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
     ylim <- c(-ylim_val, ylim_val)
   }
 
-  # Create MA data frame
-  plots_df <- res_df %>%
+  # Identify significant genes and outliers for plotting
+  res_df <- res_df %>%
     filter(!is.na(baseMean), !is.na(log2FoldChange_shrunk)) %>%
     mutate(
       sig_category = case_when(
         is.na(padj) ~ "No-pvalue",
-        padj > 0.05 ~ "p-value <0.05",
-        padj <= 0.05 & abs(log2FoldChange_shrunk) <= FC_cutoff ~ "p-value >0.05",
-        padj <= 0.05 & log2FoldChange_shrunk > FC_cutoff ~ "Up",
-        padj <= 0.05 & log2FoldChange_shrunk < -FC_cutoff ~ "Down"
+        padj > 0.05 ~ "p-value >0.05",
+        padj <= 0.05 & abs(log2FoldChange_shrunk) <= 0 ~ "p-value <0.05",
+        padj <= 0.05 & log2FoldChange_shrunk > 0 ~ "Up",
+        padj <= 0.05 & log2FoldChange_shrunk < -0 ~ "Down"
       ),
+      sig_category = factor(sig_category, levels = c("No-pvalue","p-value >0.05","p-value <0.05","Up","Down")),
       is_outlier = log2FoldChange_shrunk < ylim[1] | log2FoldChange_shrunk > ylim[2],
       log2FoldChange_shrunk_clipped = case_when(
         log2FoldChange_shrunk < ylim[1] ~ ylim[1] * 0.98,  # Slightly inside boundary
@@ -300,10 +297,11 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
         TRUE ~ log2FoldChange_shrunk
       ),
       point_shape = if_else(is_outlier & show_outlier, 18, 16)
-    ) 
-
+    ) %>%
+    select(Geneid, contrast, everything())
+  
 # Create custom MA plot (ggplot version)
-  ma_plot <- ggplot(plots_df, aes(x = log2(baseMean), 
+  ma_plot <- ggplot(res_df, aes(x = log2(baseMean), 
                          y = if_else(is_outlier & show_outlier, 
                                      log2FoldChange_shrunk_clipped, 
                                      log2FoldChange_shrunk))) +
@@ -315,7 +313,7 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
                linetype = "dashed", linewidth = 0.5) +
     scale_color_manual(
       values = c("Up" = "salmon3", "Down" = "salmon3", 
-                 "No-pvalue" = "gray60", "p-value <0.05" = "gray40", "p-value >0.05" = "salmon3"),
+                 "No-pvalue" = "gray60", "p-value >0.05" = "gray40", "p-value <0.05" = "salmon3"),
       name = ""
     ) +
     coord_cartesian(ylim = ylim) +
@@ -333,11 +331,11 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
     )
   
   # Volcano plot (ggplot)
-  volcano_plot <- ggplot(plots_df, aes(x = log2FoldChange_shrunk, y = -log10(padj))) +
+  volcano_plot <- ggplot(res_df, aes(x = log2FoldChange_shrunk, y = -log10(padj))) +
     geom_point(aes(color = sig_category), size = 1, alpha = 0.6) +
     scale_color_manual(
       values = c("Up" = "salmon3", "Down" = "salmon3", 
-                 "No-pvalue" = "gray60", "p-value <0.05" = "gray40", "p-value >0.05" = "salmon3"),
+                 "No-pvalue" = "gray60", "p-value >0.05" = "gray40", "p-value <0.05" = "salmon3"),
       name = ""
     ) +
     geom_vline(xintercept = c(-FC_cutoff, FC_cutoff), linetype = "dashed") +
@@ -355,7 +353,6 @@ run_contrast_analysis <- function(dds, FC_cutoff, contrast_name,
   
   return(list(
     results = res_df,
-    ma_plot_DESeq = ma_plot_DESeq,
     ma_plot = ma_plot,
     volcano_plot = volcano_plot
   ))
@@ -378,17 +375,14 @@ This section tests the effect of virus infection (TRUE vs FALSE) within each bac
 -   For the reference species NB, the virus effect is captured by the main coefficient `virus_TRUE_vs_FALSE`.
 -   For other species (Dpi, Spn, Hin), the virus effect is a combination of the main virus effect plus the interaction term (e.g., `virusTRUE.speciesDpi`).
 
-```{r, fig.width=12, fig.height=4, fig.align="center"}
+```{r}
 # Define contrast list with full virus effect per species:
 contrast_Virus_TvsF <- list(
   VirusTvsF_NB  = "virus_TRUE_vs_FALSE",                                   # virus effect in NB, does not need interaction
-  VirusTvsF_Dpi = list(c("virus_TRUE_vs_FALSE", "virusTRUE.speciesDpi")),  # virus effect in Dpi
   VirusTvsF_Spn = list(c("virus_TRUE_vs_FALSE", "virusTRUE.speciesSpn")),  # virus effect in Spn
-  VirusTvsF_Hin = list(c("virus_TRUE_vs_FALSE", "virusTRUE.speciesHin"))   # virus effect in Hin
+  VirusTvsF_Hin = list(c("virus_TRUE_vs_FALSE", "virusTRUE.speciesHin")),   # virus effect in Hin
+  VirusTvsF_Dpi = list(c("virus_TRUE_vs_FALSE", "virusTRUE.speciesDpi"))  # virus effect in Dpi
 )
-
-# Set plotting layout
-par(mfrow = c(1, length(contrast_Virus_TvsF)))
 
 # Run contrasts
 res_Virus_TvsF <- imap(contrast_Virus_TvsF, function(contrast_val, name) {
@@ -399,14 +393,22 @@ res_Virus_TvsF <- imap(contrast_Virus_TvsF, function(contrast_val, name) {
   }
 })
 
-# Display original DESeq2 MA plots
-par(mfrow = c(1, length(res_Virus_TvsF)))
-
 # Save individual contrast results R file
 for (contrast_name in names(res_Virus_TvsF)) {
   saveRDS(res_Virus_TvsF[[contrast_name]], 
           file = file.path(contrasts_folder, paste0("DESeq2_contrast_", contrast_name, ".rds")))
 }
+
+# Summarize table based on sig_category for each contrast
+summary_Virus_TvsF <- map_dfr(res_Virus_TvsF, 
+                                           ~ .x$results %>%
+                                             group_by(sig_category) %>%
+                                             summarise(count = n()) %>%
+                                             pivot_wider(names_from = sig_category, values_from = count) %>%
+                                             mutate_all(~ replace(., is.na(.), 0)),
+                                           .id = "contrast")
+                                        
+kable(summary_Virus_TvsF)
 ```
 
 ```{r, fig.width=12, fig.height=4, fig.align="center"}
@@ -423,16 +425,13 @@ Here we focus on whether the virus effect differs between each species and the r
 
 -   We use the interaction terms alone (e.g., `virusTRUE.speciesDpi`), which quantify how much the virus effect in each species deviates from that in NB.
 
-```{r, fig.width=10, fig.height=4, fig.align="center"}
+```{r}
 # Define contrast list of interaction terms (difference in virus effect compared to NB, interaction terms only)
 contrast_VirusEffect_diff_vsNB <- list(
-  VirusEffectDiff_Dpi = "virusTRUE.speciesDpi",
   VirusEffectDiff_Spn = "virusTRUE.speciesSpn",
-  VirusEffectDiff_Hin = "virusTRUE.speciesHin"
+  VirusEffectDiff_Hin = "virusTRUE.speciesHin",
+  VirusEffectDiff_Dpi = "virusTRUE.speciesDpi"
 )
-
-# Set plotting layout
-par(mfrow = c(1, length(contrast_VirusEffect_diff_vsNB)))
 
 # Run contrasts using coef names (interaction terms)
 res_VirusEffect_diff_vsNB <- imap(contrast_VirusEffect_diff_vsNB, 
@@ -443,7 +442,19 @@ for (contrast_name in names(res_VirusEffect_diff_vsNB)) {
   saveRDS(res_VirusEffect_diff_vsNB[[contrast_name]], 
           file = file.path(contrasts_folder, paste0("DESeq2_contrast_", contrast_name, ".rds")))
 }
+
+# Summarize table based on sig_category for each contrast
+summary_VirusEffect_diff_vsNB <- map_dfr(res_VirusEffect_diff_vsNB, 
+                                           ~ .x$results %>%
+                                             group_by(sig_category) %>%
+                                             summarise(count = n()) %>%
+                                             pivot_wider(names_from = sig_category, values_from = count) %>%
+                                             mutate_all(~ replace(., is.na(.), 0)),
+                                           .id = "contrast")
+                                        
+kable(summary_VirusEffect_diff_vsNB)
 ```
+
 
 ```{r, fig.width=10, fig.height=4, fig.align="center"}
 wrap_plots(map(res_VirusEffect_diff_vsNB, "ma_plot"), nrow = 1)
@@ -459,16 +470,13 @@ This comparison evaluates how each bacterial species differs from the reference 
 
 -   Because virus FALSE is the baseline in the model, these contrasts use only the main species effects (e.g., `species_Dpi_vs_NB`).
 
-```{r, fig.width=10, fig.height=4, fig.align="center"}
+```{r}
 # These don't need the interaction term because virus FALSE is the baseline
 contrast_Species_vsNB_VF <- list(
-  DpivsNB_VF = "species_Dpi_vs_NB",
   SpnvsNB_VF = "species_Spn_vs_NB",
-  HinvsNB_VF = "species_Hin_vs_NB"
+  HinvsNB_VF = "species_Hin_vs_NB",
+  DpivsNB_VF = "species_Dpi_vs_NB"
 )
-
-# Set plotting layout 
-par(mfrow = c(1, length(contrast_Species_vsNB_VF)))
 
 # Run all contrasts and generate plots
 res_Species_vsNB_VF <- imap(contrast_Species_vsNB_VF,
@@ -479,6 +487,16 @@ for (contrast_name in names(res_Species_vsNB_VF)) {
   saveRDS(res_Species_vsNB_VF[[contrast_name]], 
           file = file.path(contrasts_folder, paste0("DESeq2_contrast_", contrast_name, ".rds")))
 }
+
+# Summarize table based on sig_category for each contrast
+summary_Species_vsNB_VF <- map_dfr(res_Species_vsNB_VF, 
+                                   ~ .x$results %>%
+                                     group_by(sig_category) %>%
+                                     summarise(count = n()) %>%
+                                     pivot_wider(names_from = sig_category, values_from = count) %>%
+                                     mutate_all(~ replace(., is.na(.), 0)),
+                                   .id = "contrast")
+kable(summary_Species_vsNB_VF)
 ```
 
 ```{r, fig.width=10, fig.height=4, fig.align="center"}
@@ -495,16 +513,13 @@ Here we test the species differences under virus infection (virus = TRUE). This 
 
 -   These contrasts combine the main species effect plus the interaction with virus (e.g., `species_Dpi_vs_NB` + `virusTRUE.speciesDpi`).
 
-```{r, fig.width=10, fig.height=4, fig.align="center"}
+```{r}
 # These include the interaction terms to reflect virus-specific responses
 contrast_Species_vsNB_VT <- list(
-  DpivsNB_VT = list(c("species_Dpi_vs_NB", "virusTRUE.speciesDpi")),
   SpnvsNB_VT = list(c("species_Spn_vs_NB", "virusTRUE.speciesSpn")),
-  HinvsNB_VT = list(c("species_Hin_vs_NB", "virusTRUE.speciesHin"))
+  HinvsNB_VT = list(c("species_Hin_vs_NB", "virusTRUE.speciesHin")),
+  DpivsNB_VT = list(c("species_Dpi_vs_NB", "virusTRUE.speciesDpi"))
 )
-
-# Set plotting layout
-par(mfrow = c(1, length(contrast_Species_vsNB_VT)))
 
 # Run all contrasts and generate plots
 res_Species_vsNB_VT <- imap(contrast_Species_vsNB_VT,
@@ -515,6 +530,16 @@ for (contrast_name in names(res_Species_vsNB_VT)) {
   saveRDS(res_Species_vsNB_VT[[contrast_name]], 
           file = file.path(contrasts_folder, paste0("DESeq2_contrast_", contrast_name, ".rds")))
 }
+
+# Summarize table based on sig_category for each contrast
+summary_Species_vsNB_VT <- map_dfr(res_Species_vsNB_VT, 
+                                   ~ .x$results %>%
+                                     group_by(sig_category) %>%
+                                     summarise(count = n()) %>%
+                                     pivot_wider(names_from = sig_category, values_from = count) %>%
+                                     mutate_all(~ replace(., is.na(.), 0)),
+                                   .id = "contrast")
+kable(summary_Species_vsNB_VT)
 ```
 
 ```{r, fig.width=10, fig.height=4, fig.align="center"}
@@ -531,7 +556,7 @@ This section examines the effect of HNO line on gene expression, independent of 
 
 -   In this setup, 9007 is the reference, and the coefficient `line_9009_vs_9007` captures the log2 fold change in gene expression for line 9009 relative to line 9007, averaged across all species and virus conditions.
 
-```{r, fig.width=4, fig.height=4, fig.align="center"}
+```{r}
 res_Line_9009vs9007 <- run_contrast_analysis(dds, FC_cutoff = 2, ylim = c(-5, 5),
   contrast_name = "Line_9009_vs_9007",
   coef = "line_9009_vs_9007")
@@ -539,6 +564,14 @@ res_Line_9009vs9007 <- run_contrast_analysis(dds, FC_cutoff = 2, ylim = c(-5, 5)
 # Save individual contrast results R file
 saveRDS(res_Line_9009vs9007, 
         file = file.path(contrasts_folder, "DESeq2_contrast_Line_9009_vs_9007.rds"))
+
+# Summarize table based on sig_category for the contrast
+summary_Line_9009vs9007 <- res_Line_9009vs9007$results %>%
+  group_by(sig_category) %>%
+  summarise(count = n()) %>%
+  pivot_wider(names_from = sig_category, values_from = count) %>%
+  mutate_all(~ replace(., is.na(.), 0))
+kable(summary_Line_9009vs9007)
 ```
 
 ```{r, fig.width=8, fig.height=4, fig.align="center"}
@@ -550,6 +583,7 @@ wrap_plots(
 )
 ```
 
+### Combine all contrast results
 ```{r}
 # Flatten and combine all contrast result objects into one table
 all_contrast_results <- list(
@@ -559,20 +593,10 @@ all_contrast_results <- list(
   res_Species_vsNB_VT,
   list(Line_9009vs9007 = res_Line_9009vs9007)) %>% flatten()
 
-FC_cutoff <- 2
 # Build a single DE table
 DESeqData <- map_dfr(all_contrast_results, "results") %>%
   select(Geneid, contrast, everything()) %>%
-  mutate(
-    contrast = factor(contrast),
-    sign = padj < 0.05,
-    DE = padj < 0.05 & abs(log2FoldChange) > FC_cutoff,
-    regulated = case_when(
-      padj < 0.05 & log2FoldChange > FC_cutoff  ~ "up",
-      padj < 0.05 & log2FoldChange < -FC_cutoff ~ "down",
-      TRUE ~ NA_character_
-    )
-  )
+  select(1:match("sig_category", names(.)))
 
 # Save the results
 write.csv(DESeqData, file = file.path(outputs_folder, "RSVbac_DESeq_human_Contrasts.csv"), row.names = FALSE)
@@ -781,15 +805,14 @@ pathway_groups_HALLMARK <- bind_rows(
   
   tibble(
     pathway = c("TGF_BETA_SIGNALING", "E2F_TARGETS", "G2M_CHECKPOINT", 
-                "MYC_TARGETS_V1", "MYC_TARGETS_V2", "MITOTIC_SPINDLE", 
-                "DNA_REPAIR"),
+                "MYC_TARGETS_V1", "MYC_TARGETS_V2", "MITOTIC_SPINDLE"),
     category = "Cell Cycle"
   ),
   
   tibble(
     pathway = c("APOPTOSIS", "P53_PATHWAY", "HYPOXIA", 
                 "UV_RESPONSE_UP", "UV_RESPONSE_DN",
-                "UNFOLDED_PROTEIN_RESPONSE", "REACTIVE_OXYGEN_SPECIES_PATHWAY"),
+                "UNFOLDED_PROTEIN_RESPONSE"),
     category = "Stress"
   ),
   
@@ -803,9 +826,12 @@ pathway_groups_HALLMARK <- bind_rows(
   tibble(
     pathway = c("OXIDATIVE_PHOSPHORYLATION", "GLYCOLYSIS", 
                 "FATTY_ACID_METABOLISM", "CHOLESTEROL_HOMEOSTASIS",
-                "ADIPOGENESIS", "HEME_METABOLISM", "BILE_ACID_METABOLISM",
-                "APICAL_JUNCTION", "APICAL_SURFACE", "COAGULATION",
+                "APICAL_JUNCTION", "COAGULATION",
                 "PROTEIN_SECRETION", "ANDROGEN_RESPONSE", 
+                "XENOBIOTIC_METABOLISM", "ADIPOGENESIS",
+                "DNA_REPAIR", "APICAL_SURFACE",
+                "BILE_ACID_METABOLISM", "PANCREAS_BETA_CELLS",
+                "REACTIVE_OXYGEN_SPECIES_PATHWAY", "WNT_BETA_CATENIN_SIGNALING",
                 "ESTROGEN_RESPONSE_EARLY", "ESTROGEN_RESPONSE_LATE"),
     category = "Other"
   )
@@ -845,10 +871,11 @@ ggsave(filename = file.path(outputs_folder, "GSEA_VirusEffectDiff_NES_Heatmap.pn
        plot = multi_gsea_VirusEffect_diff_vsNB_heatmap, width = 6, height = 10, dpi = 300)
 saveRDS(multi_gsea_VirusEffect_diff_vsNB_heatmap, file = file.path(outputs_folder, "GSEA_VirusEffectDiff_NES_Heatmap.rds"))
 
+saveRDS(multi_gsea_VirusEffect_diff_vsNB, file = file.path(outputs_folder, "GSEA_VirusEffectDiff_Results.rds"))
 write_csv(multi_gsea_VirusEffect_diff_vsNB$combined_df, file.path(outputs_folder, "GSEA_VirusEffectDiff_NES_Values.csv"))
 ```
 
-### Leading-Edge Gene Extraction
+#### Leading-Edge Gene Extraction
 
 Leading-edge genes are the subset of genes in each pathway that contribute most to the enrichment signal. We extract these genes to:
 
@@ -1252,7 +1279,7 @@ The overlap table quantifies gene sharing between pathways at two levels:
 
 This helps identify functionally related pathway clusters and potential redundancy.
 
-### Individual Pathway Expression Heatmaps
+#### Individual Pathway Expression Heatmaps
 
 For each significant pathway, we generate Z-score normalized heatmaps showing the expression of all leading-edge genes across conditions. Genes are hierarchically clustered to reveal co-expression patterns.
 
@@ -1322,9 +1349,10 @@ dev.off()
 ```
 
 
-### Custom Pathway Selection: Key Biological Processes
+#### Custom Pathway Selection: Key Biological Processes
 
 For focused visualization, we can select specific pathways of interest and plot their expression patterns together. This example highlights pathways central to immune response, cell cycle, and stress response.
+
 **Note:** This visualization uses `all_leading_edge`, meaning genes that are leading-edge members of multiple selected pathways will be included for each pathway they contribute to, providing a complete view of pathway membership.
 
 ```{r, fig.width=8, fig.height=4, fig.align="center"}
@@ -1333,12 +1361,12 @@ pathway_groups_selected <- bind_rows(
   tibble(
     pathway = c("INFLAMMATORY_RESPONSE", "INTERFERON_ALPHA_RESPONSE", 
                 "INTERFERON_GAMMA_RESPONSE", "TNFA_SIGNALING_VIA_NFKB",
-                "E2F_TARGETS", "TGF_BETA_SIGNALING", "APOPTOSIS"),
+                "E2F_TARGETS", "TGF_BETA_SIGNALING"),
     category = "SelectedFig",
     color = "grey"  
   )
 )
-colors_groups_selected <- c("#FA8072", "#FF0000", "#D40118", "#65000b", "#32CD32", "#006400", "#9467bd")
+colors_groups_selected <- c("#FA8072", "#FF0000", "#D40118", "#65000b", "#32CD32", "#006400")
 
 
 # Loop through all categories using map to run plot_expression_by_category()
@@ -1396,5 +1424,108 @@ names(selected_gene_sets) <- pathway_groups_selected$pathway
 
 # Save the entire list as well for easy access
 saveRDS(selected_gene_sets, file = file.path(outputs_folder, "GSEA_VirusEffectDiff_ZHeatmaps_SelectedFig.rds"))
+```
+
+```{r}
+# For each pathway, calculate mean expression of leading-edge genes and perform mixed-effects modeling
+analyze_pathway_mean_expression <- function(pathway_name, leading_edges, 
+                                           vst_matrix, meta) {
+  
+  # Get all genes in this pathway's leading edge
+  pathway_genes <- leading_edges %>%
+    filter(pathway == pathway_name) %>%
+    pull(gene)                      
+  
+  # Get expression values and calculate mean per sample
+  expression_df <- vst_matrix[pathway_genes, ] %>%
+    as.data.frame() %>%
+    rownames_to_column("Gene") %>%
+    pivot_longer(-Gene, names_to = "Sample", values_to = "Expression") %>%
+    left_join(meta, by = c("Sample" = "label")) %>%
+    group_by(Sample, condition, Bac.Vir_label, Bac.Vir_label_symbols, 
+             species, virus, line, date) %>%
+    summarise(MeanExpression = mean(Expression, na.rm = TRUE), 
+              .groups = "drop") %>%
+    mutate(pathway = pathway_name)
+  
+  # Fit mixed-effects model
+  model <- lmer(MeanExpression ~ condition + (1|line) + (1|line:date), 
+                data = expression_df)
+  
+  # Check for singularity
+  singular <- isSingular(model)
+  if (singular) {
+    model <- lmer(MeanExpression ~ condition + (1|date), 
+                  data = expression_df)
+  }
+  
+  # Get ANOVA results
+  anova_result <- anova(model)
+  anova_pval <- anova_result$`Pr(>F)`[1]
+  
+  # Extract random effects
+  random_effects_df <- as.data.frame(VarCorr(model)) %>%
+    mutate(proportion = round(100 * (vcov / sum(vcov)), 2),
+           singular = singular,
+           pathway = pathway_name)
+  
+  # Extract fixed effects
+  fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
+    rownames_to_column(var = "term") %>%
+    mutate(pathway = pathway_name)
+  
+  # Get emmeans contrasts vs NB.NV with Holm adjustment
+  emmeans_model <- emmeans(model, ~ condition)
+  contrasts <- pairs(emmeans_model, adjust = "none")
+  
+  contrast_df <- as.data.frame(summary(contrasts)) %>%
+    separate(contrast, into = c("condition1", "condition2"), 
+             sep = " - ", remove = FALSE) %>%
+    mutate(pathway = pathway_name,
+           anova_pval = anova_pval)
+  
+  return(list(
+    expression_data = expression_df,
+    anova = anova_result,
+    random_effects = random_effects_df,
+    fixed_effects = fixed_effects_df,
+    contrasts = contrast_df
+  ))
+}
+```
+
+```{r}
+# Analyze all pathways
+pathway_stats_list <- map(
+  pathway_groups_selected$pathway,
+  ~ analyze_pathway_mean_expression(
+    pathway_name = .x,
+    leading_edges = le_genes_VirusEffect_diff_vsNB$grouped_leading_edge,
+    vst_matrix = vst_matrix,
+    meta = meta
+  )
+)
+names(pathway_stats_list) <- pathway_groups_selected$pathway
+
+# Combine all contrasts 
+selected_gene_sets_contrasts <- bind_rows(
+  map(pathway_stats_list, "contrasts"),
+  .id = "pathway"
+) %>%
+  mutate(across(where(is.character), as.factor))
+
+# Adjust across all contrasts 
+selected_gene_sets_contrasts <- selected_gene_sets_contrasts %>%
+  mutate(adj.p.FDR = p.adjust(p.value, method = "fdr")) %>%
+  mutate(sign.FDR = ifelse(adj.p.FDR < 0.05, T, F)) %>%
+  mutate(sign = case_when(
+    adj.p.FDR < 0.05 ~ "*",
+    TRUE ~ ""  
+  )) 
+
+selected_gene_sets_contrasts$adj.p.FDR = format(selected_gene_sets_contrasts$adj.p.FDR, digits = 2, scientific = TRUE)
+
+write_csv(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.csv"))
+saveRDS(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.rds"))
 ```
 

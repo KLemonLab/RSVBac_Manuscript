@@ -8,7 +8,7 @@
 
 <meta name="author" content="Leah Kafer">
 <meta name="author" content="Isabel F. Escapa">
-<meta name="dcterms.date" content="2026-01-20">
+<meta name="dcterms.date" content="2026-01-29">
 
 <title>RSVBac</title>
 <style>
@@ -4633,7 +4633,7 @@ vertical-align: -.125em;
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">January 20, 2026</p>
+      <p class="date">January 29, 2026</p>
     </div>
   </div>
   
@@ -4663,6 +4663,7 @@ This repository contains all analysis code and documentation for the manuscript:
 <p>All analyses are provided as individual Quarto (<code>.qmd</code>) notebooks, which can be rendered independently. Each notebook reads processed <code>.rds</code> files from the <code>dataframes/</code> folder and generates publication-quality figures and statistical outputs.</p>
 <p>To reproduce the analyses:</p>
 <ul>
+<li>Clone or download this <a href="https://github.com/KLemonLab/RSVBac_Manuscript">repository</a> to your local machine.</li>
 <li>Download the <code>dataframes/</code> folder and place it in your working directory.</li>
 <li>Download all <code>.qmd</code> notebooks from the repository and keep them in the same directory.</li>
 <li>Install required R packages listed in <a href="Manuscript_RSVbac_RSession.html">R Session Info</a>.</li>
@@ -5002,50 +5003,51 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>To reproduce the analyses:</span>
 <span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Download the <span class="in">`dataframes/`</span> folder and place it in your working directory.</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Download all <span class="in">`.qmd`</span> notebooks from the repository and keep them in the same directory.</span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Install required R packages listed in <span class="co">[</span><span class="ot">R Session Info</span><span class="co">](Manuscript_RSVbac_RSession.html)</span>.</span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Render the notebooks using Quarto to generate figures and results.</span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>The directory structure should look like this:</span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="in">your_project/</span></span>
-<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="in">├── dataframes/          # Downloaded data files</span></span>
-<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="in">└── [analysis notebooks saved as .qmd files]</span></span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>Set Environment Variable as follows in R:</span>
-<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
-<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a><span class="in">Sys.setenv(BOX_PATH_RSVBacPublication = "/path/to/your_project")</span></span>
-<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>Alternatively, add to your <span class="in">`.Renviron`</span> file:</span>
-<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
-<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a><span class="in">BOX_PATH_RSVBacPublication=/path/to/your_project</span></span>
-<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>The whole project can be rendered using RStudio's "Render" or "Built" options or in the terminal via:</span>
-<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a><span class="in">quarto render</span></span>
-<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a><span class="fu">## Analysis Notebooks</span></span>
-<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>1<span class="sc">\.</span> <span class="co">[</span><span class="ot">Quantification of bacterial CFUs</span><span class="co">](Manuscript_RSVbac_CFUs.html)</span></span>
-<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>2<span class="sc">\.</span> <span class="co">[</span><span class="ot">RSV PFU quantification</span><span class="co">](Manuscript_RSVbac_PFUs.html)</span></span>
-<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>3<span class="sc">\.</span> <span class="co">[</span><span class="ot">RSV qRT-PCR quantification</span><span class="co">](Manuscript_RSVbac_ViralTiters.html)</span></span>
-<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>4<span class="sc">\.</span> <span class="co">[</span><span class="ot">Caspase Assay</span><span class="co">](Manuscript_RSVbac_Caspase.html)</span></span>
-<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>5<span class="sc">\.</span> <span class="co">[</span><span class="ot">RNASeq Analysis</span><span class="co">](Manuscript_RSVbac_RNASeqHNOs.html)</span></span>
-<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a>6<span class="sc">\.</span> <span class="co">[</span><span class="ot">Cytokine Analysis</span><span class="co">](Manuscript_RSVbac_Cytokines.html)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Clone or download this <span class="co">[</span><span class="ot">repository</span><span class="co">](https://github.com/KLemonLab/RSVBac_Manuscript)</span> to your local machine.</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Download the <span class="in">`dataframes/`</span> folder and place it in your working directory.</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Download all <span class="in">`.qmd`</span> notebooks from the repository and keep them in the same directory.</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Install required R packages listed in <span class="co">[</span><span class="ot">R Session Info</span><span class="co">](Manuscript_RSVbac_RSession.html)</span>.</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="ss">-   </span>Render the notebooks using Quarto to generate figures and results.</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>The directory structure should look like this:</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="in">your_project/</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="in">├── dataframes/          # Downloaded data files</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="in">└── [analysis notebooks saved as .qmd files]</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>Set Environment Variable as follows in R:</span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a><span class="in">Sys.setenv(BOX_PATH_RSVBacPublication = "/path/to/your_project")</span></span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>Alternatively, add to your <span class="in">`.Renviron`</span> file:</span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a><span class="in">```         </span></span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a><span class="in">BOX_PATH_RSVBacPublication=/path/to/your_project</span></span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>The whole project can be rendered using RStudio's "Render" or "Built" options or in the terminal via:</span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a><span class="in">quarto render</span></span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a><span class="fu">## Analysis Notebooks</span></span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>1<span class="sc">\.</span> <span class="co">[</span><span class="ot">Quantification of bacterial CFUs</span><span class="co">](Manuscript_RSVbac_CFUs.html)</span></span>
+<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>2<span class="sc">\.</span> <span class="co">[</span><span class="ot">RSV PFU quantification</span><span class="co">](Manuscript_RSVbac_PFUs.html)</span></span>
+<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>3<span class="sc">\.</span> <span class="co">[</span><span class="ot">RSV qRT-PCR quantification</span><span class="co">](Manuscript_RSVbac_ViralTiters.html)</span></span>
+<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>4<span class="sc">\.</span> <span class="co">[</span><span class="ot">Caspase Assay</span><span class="co">](Manuscript_RSVbac_Caspase.html)</span></span>
+<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>5<span class="sc">\.</span> <span class="co">[</span><span class="ot">RNASeq Analysis</span><span class="co">](Manuscript_RSVbac_RNASeqHNOs.html)</span></span>
+<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>6<span class="sc">\.</span> <span class="co">[</span><span class="ot">Cytokine Analysis</span><span class="co">](Manuscript_RSVbac_Cytokines.html)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 

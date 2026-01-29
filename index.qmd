@@ -12,6 +12,7 @@ All analyses are provided as individual Quarto (`.qmd`) notebooks, which can be 
 
 To reproduce the analyses:
 
+-   Clone or download this [repository](https://github.com/KLemonLab/RSVBac_Manuscript) to your local machine.
 -   Download the `dataframes/` folder and place it in your working directory.
 -   Download all `.qmd` notebooks from the repository and keep them in the same directory.
 -   Install required R packages listed in [R Session Info](Manuscript_RSVbac_RSession.html).

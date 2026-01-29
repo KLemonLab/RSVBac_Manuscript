@@ -216,7 +216,7 @@ analysis_function <- function(raw_data, loc, cutoff_pvalue, cutoff_FC) {
            highlighted = case_when(
              p.value < cutoff_pvalue & abs(log10FC) >= cutoff_FC ~ "*",
              TRUE ~ "")) %>%
-    select(contrast, p.value, pPFUs.1, pPFUs.2, FC, log10FC, highlighted, condition1, condition2, group1, group2)
+    select(contrast, condition1, condition2, p.value, pPFUs.1, pPFUs.2, FC, log10FC, highlighted, group1, group2)
   
   return(list(
     anova = anova,
@@ -296,6 +296,7 @@ kable(stats_Ap$anova)
 kable(stats_Ap$random_effects)
 kable(stats_Ap$fixed_effects)
 kable(stats_Ap$contrasts %>% select(-group1, -group2, -condition1, -condition2))
+saveRDS(stats_Ap, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_stats_A.rds")))
 ```
 
 ```{r}
@@ -303,8 +304,8 @@ kable(stats_Ap$contrasts %>% select(-group1, -group2, -condition1, -condition2))
 #| fig-width: 7
 plot_Ap <- plot_function(PFU_data_plots, loc = "Ap", stats_data = stats_Ap$transf_preds, contrasts = stats_Ap$contrasts, ypval = 6.1)
 plot_Ap
-ggsave(plot_Ap, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_Ap.png")), width = 7, height = 5)
-saveRDS(plot_Ap, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_Ap.rds")))
+ggsave(plot_Ap, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_A.png")), width = 7, height = 5)
+saveRDS(plot_Ap, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_A.rds")))
 ```
 
 #### Basal
@@ -312,6 +313,7 @@ saveRDS(plot_Ap, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_Ap.r
 ```{r}
 stats_Bas <- analysis_function(PFU_data_plots, loc = "Baso", cutoff_pvalue = 0.05, cutoff_FC = 0)
 kable(stats_Bas$anova)
+saveRDS(stats_Bas, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_stats_B.rds")))
 ```
 
 ```{r}
@@ -319,8 +321,8 @@ kable(stats_Bas$anova)
 #| fig-width: 7
 plot_Baso <- plot_function(PFU_data_plots, loc = "Baso", stats_data = stats_Bas$transf_preds, contrasts = stats_Bas$contrasts, ypval = 6.1)
 plot_Baso
-ggsave(plot_Baso, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_Baso.png")), width = 7, height = 5)
-saveRDS(plot_Baso, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_Baso.rds")))
+ggsave(plot_Baso, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_B.png")), width = 7, height = 5)
+saveRDS(plot_Baso, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_B.rds")))
 ```
 
 ## Spn Kinetics
@@ -390,6 +392,16 @@ analysis_function_kinetics <- function(raw_data, loc, cutoff_pvalue) {
   
   # Run ANOVA 
   anova_result <- anova(model)
+  anova_pvalue <- anova_result$`Pr(>F)`[1]
+  
+  # If ANOVA is not significant, stop here. Otherwise continue with post-hoc analysis
+  if (is.na(anova_pvalue) || anova_pvalue >= cutoff_pvalue) {
+    return(list(
+      anova = anova_result,
+      random_effects = random_effects_df,
+      note = "ANOVA not significant; post-hoc tests skipped"
+    ))
+  }
   
   # Extract fixed effects coefficients and convert to dataframe
   fixed_effects_df <- as.data.frame(summary(model)$coefficients) %>%
@@ -444,7 +456,7 @@ plotK_function_log2FC <- function(raw_data, stats_results = NULL, loc) {
     
     # Labels
     labs(x = "DPVI",
-         y = "log2(Spn/NB) RSV PFU",
+         y = "log2(Spn/Unc) RSV PFU",
          color = "Bacteria", shape = "HNO Line") +
     
     # Theme
@@ -496,13 +508,14 @@ stats_SpnKinetics_A$anova
 stats_SpnKinetics_A$random_effects
 stats_SpnKinetics_A$fixed_effects
 stats_SpnKinetics_A$emmeans_test_vs_zero
+saveRDS(stats_SpnKinetics_A, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_stats_A.rds")))
 ```
 
 ```{r}
 plot_SpnKinetics_A <- plotK_function_log2FC(log2FC_PFU_SpnKinetics, stats_SpnKinetics_A, loc = "Ap")
 plot_SpnKinetics_A
-ggsave(plot_SpnKinetics_A, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_Apical.png")), width = 7, height = 5)
-saveRDS(plot_SpnKinetics_A, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_Apical.rds")))
+ggsave(plot_SpnKinetics_A, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_A.png")), width = 7, height = 5)
+saveRDS(plot_SpnKinetics_A, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_A.rds")))
 ```
 
 #### Basal
@@ -511,13 +524,13 @@ saveRDS(plot_SpnKinetics_A, file = file.path(outputs_folder, paste0(dataframeID,
 stats_SpnKinetics_B <- analysis_function_kinetics(log2FC_PFU_SpnKinetics, loc = "Baso", cutoff_pvalue = 0.05)
 stats_SpnKinetics_B$anova
 stats_SpnKinetics_B$random_effects
-stats_SpnKinetics_B$fixed_effects
-stats_SpnKinetics_B$emmeans_test_vs_zero
+saveRDS(stats_SpnKinetics_B, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_stats_B.rds")))
 ```
 
 ```{r}
 plot_SpnKinetics_B <- plotK_function_log2FC(log2FC_PFU_SpnKinetics, stats_SpnKinetics_B, loc = "Baso")
 plot_SpnKinetics_B
-ggsave(plot_SpnKinetics_B, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_Basal.png")), width = 7, height = 5)
-saveRDS(plot_SpnKinetics_B, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_Basal.rds")))
+ggsave(plot_SpnKinetics_B, filename = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_B.png")), width = 7, height = 5)
+saveRDS(plot_SpnKinetics_B, file = file.path(outputs_folder, paste0(dataframeID, "_PFU_SpnKinetics_B.rds")))
 ```
+

@@ -912,9 +912,10 @@ plots_list <- purrr::map(unique(Stats_values$group_label), ~plot_function(true_d
 ## Save outputs
 write_xlsx(stats_fixed_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_fixed_effects_t4.xlsx")))
 write_xlsx(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t4.xlsx")))
-write_xlsx(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.xlsx")))
+write_xlsx(stats_contrasts_selection, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.xlsx")))
 write_xlsx(stats_transf_preds, file.path(outputs_folder, paste0(dataframeID, "_stats_transf_preds_t4.xlsx")))
-saveRDS(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.rds")))
+saveRDS(stats_contrasts_selection, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t4.rds")))
+saveRDS(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t4.rds")))
 
 # Create subfolder for individual files
 plots_folder <- file.path(outputs_folder, "individual_plots")
@@ -1382,9 +1383,10 @@ plots_list <- purrr::map(unique(Stats_values$group_label), ~plot_function(true_d
 ## Save outputs
 write_xlsx(stats_fixed_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_fixed_effects_t0.xlsx")))
 write_xlsx(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t0.xlsx")))
-write_xlsx(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.xlsx")))
+write_xlsx(stats_contrasts_selection, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.xlsx")))
 write_xlsx(stats_transf_preds, file.path(outputs_folder, paste0(dataframeID, "_stats_transf_preds_t0.xlsx")))
-saveRDS(stats_contrasts, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.rds")))
+saveRDS(stats_contrasts_selection, file.path(outputs_folder, paste0(dataframeID, "_stats_contrasts_t0.rds")))
+saveRDS(stats_random_effects, file.path(outputs_folder, paste0(dataframeID, "_stats_random_effects_t0.rds")))
 
 # Create subfolder for individual files
 plots_folder <- file.path(outputs_folder, "individual_plots")
