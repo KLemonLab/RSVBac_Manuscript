@@ -10,23 +10,11 @@
 
 All analyses are provided as individual Quarto (`.qmd`) notebooks, which can be rendered independently. Each notebook reads processed `.rds` files from the `dataframes/` folder and generates publication-quality figures and statistical outputs.
 
-To reproduce the analyses:
+You can clone or download this [repository](https://github.com/KLemonLab/RSVBac_Manuscript) to your local machine.
 
--   Clone or download this [repository](https://github.com/KLemonLab/RSVBac_Manuscript) to your local machine.
--   Download the `dataframes/` folder and place it in your working directory.
--   Download all `.qmd` notebooks from the repository and keep them in the same directory.
--   Install required R packages listed in [R Session Info](Manuscript_RSVbac_RSession.html).
--   Render the notebooks using Quarto to generate figures and results.
+## Setting Required Path Variable
 
-The directory structure should look like this:
-
-```         
-your_project/
-├── dataframes/          # Downloaded data files
-└── [analysis notebooks saved as .qmd files]
-```
-
-Set Environment Variable as follows in R:
+Set the following environment variable in R before running notebooks:
 
 ```         
 Sys.setenv(BOX_PATH_RSVBacPublication = "/path/to/your_project")
@@ -38,13 +26,33 @@ Alternatively, add to your `.Renviron` file:
 BOX_PATH_RSVBacPublication=/path/to/your_project
 ```
 
-The whole project can be rendered using RStudio's "Render" or "Built" options or in the terminal via:
+## Reproducible R Environment with renv
 
+This repository uses [`renv`](https://rstudio.github.io/renv/) to ensure your R environment matches exactly with that used for manuscript analysis.
+
+**Setup Steps:**
+
+1. Install renv (if you don't already have it):
+    ```
+    install.packages("renv")
+    ```
+
+2. From the project directory (with `renv.lock` present), restore all required package versions with:
+    ```
+    renv::restore()
+    ```
+
+    This will install all necessary packages into a project-local library for full reproducibility.
+
+## Rendering the Project
+
+You may render the entire project from the terminal:
 ```
 quarto render
 ```
+Or use “Render” or “Build” in RStudio.
 
-## Analysis Notebooks
+## Available Analysis Notebooks
 
 1\. [Quantification of bacterial CFUs](Manuscript_RSVbac_CFUs.html)
 

@@ -8,7 +8,9 @@ format:
 
 # R Session Info {.unnumbered}
 
-This document lists all R packages used across all analysis notebooks in this repository.
+This document lists all R packages used across analysis notebooks in this repository, and details how to reproduce or create similar analysis environments.
+
+## Package Loading
 
 ```{r}
 #| warning: FALSE
@@ -19,7 +21,6 @@ library(tidyverse)      # Data manipulation and ggplot2
 library(scales)         # Axis scaling and transformations
 library(ggtext)         # Markdown text in ggplot2
 library(ggpubr)         # Publication-ready plots
-library(patchwork)      # Combining plots
 library(ggrepel)        # Non-overlapping text labels
 library(ggh4x)          # Extended ggplot2 features (faceting)
 
@@ -44,6 +45,7 @@ library(vegan)          # Ecological diversity (rarefaction curves)
 # RNA-Seq specific
 library(tximport)       # Importing transcript quantification
 library(DESeq2)         # Differential expression analysis
+library(ashr)           # Adaptive shrinkage for effect size estimation
 library(fgsea)          # Fast gene set enrichment analysis
 
 # Visualization utilities
@@ -67,3 +69,17 @@ This shows the exact versions of R and all packages used in the analysis.
 ```{r}
 sessionInfo()
 ```
+
+## Reproducibility and Environment
+
+This repository manages R package versions using [`renv`](https://rstudio.github.io/renv/).
+
+To reproduce the environment for this project:
+
+```{r}
+#renv::init() # Was used to create the initial renv environment and lockfile
+#renv::snapshot() # Was used to update the renv.lock file after installing new packages
+#renv::restore() # Restores the R environment based on the renv.lock file
+```
+
+This command uses the `renv.lock` file to install the exact package versions required for the analysis.

@@ -145,7 +145,7 @@ design(dds_exp)
 
 We performed an unbiased (blind = TRUE, independent of the dds design formula) transformation of the data for exploratory analysis, calculated based on variance stabilizing transformations (VST) [@tibshirani1988; @huber2003; @Anders2010]. Principal component analysis was performed on the VST data using the top 500 genes by variance to assess the primary sources of variation and evaluate potential batch effects.
 
-```{r, fig.width=8, fig.height=6, fig.align="center"}
+```{r, fig.width=10, fig.height=4, fig.align="center"}
 vsd_exp <- vst(dds_exp, blind = TRUE)
 pcaData <- plotPCA(vsd_exp, intgroup = c("species", "virus", "line", "seq_run"), returnData = TRUE) %>%
   mutate(line = paste0("HNO", line))
@@ -169,7 +169,7 @@ pPCA <- ggplot(pcaData, aes(PC1, PC2)) +
   ) +
     guides(
     color = guide_legend(title = "Condition", override.aes = list(color = Bac.Vir_colors, shape = 22))
-  )
+  ) + coord_fixed()
 
 pPCA
 
@@ -235,6 +235,8 @@ vst_matrix <- vst(dds)
 assays(dds)[["vst"]] <- assay(vst_matrix) 
 
 vst_matrix <- assays(dds)[["vst"]]
+
+saveRDS(vst_matrix, file = file.path(outputs_folder, paste0(dataframeID, "_RNASeq_vst_matrix.rds")))
 ```
 
 ### Contrasts Results
@@ -1270,6 +1272,7 @@ le_genes_overlap_VirusEffect_diff_vsNB <- le_genes_VirusEffect_diff_vsNB$overlap
 
 kable(le_genes_VirusEffect_diff_vsNB$le_summary)
 write_csv(le_genes_overlap_VirusEffect_diff_vsNB,  file.path(outputs_folder, "Pathway_overlap_GSEA_VirusEffectDiff.csv"))
+saveRDS(le_genes_VirusEffect_diff_vsNB, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE.rds"))
 ```
 
 The overlap table quantifies gene sharing between pathways at two levels:
@@ -1528,4 +1531,3 @@ selected_gene_sets_contrasts$adj.p.FDR = format(selected_gene_sets_contrasts$adj
 write_csv(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.csv"))
 saveRDS(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.rds"))
 ```
-
