@@ -16,6 +16,7 @@ book:
     - name: Leah Kafer
     - name: Isabel F. Escapa
   date: last-modified
+  page-navigation: false
   sidebar:
     style: docked
     background: "light"
