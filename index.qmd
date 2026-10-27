@@ -65,3 +65,7 @@ Or use “Render” or “Build” in RStudio.
 5\. [RNASeq Analysis](Manuscript_RSVbac_RNASeqHNOs.html)
 
 6\. [Cytokine Analysis](Manuscript_RSVbac_Cytokines.html)
+
+## Exploring the RNA-seq Results in CONTENTO
+
+The [RNASeq Analysis](Manuscript_RSVbac_RNASeqHNOs.html#contento-summarizedexperiment) notebook also writes `RSVbac_RNASeq_human_SE.rds`, a SummarizedExperiment object with all the contrasts from the manuscript DESeq2 model. A copy is included in the `SE/` folder of this repository. Upload it in [CONTENTO](https://github.com/KLemonLab/CONTENTO) ([doi:10.5281/zenodo.21629492](https://doi.org/10.5281/zenodo.21629492)) to explore the results interactively; see the [CONTENTO documentation](https://klemonlab.github.io/CONTENTO/) for how to run the app.

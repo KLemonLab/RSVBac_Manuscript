@@ -1531,3 +1531,124 @@ selected_gene_sets_contrasts$adj.p.FDR = format(selected_gene_sets_contrasts$adj
 write_csv(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.csv"))
 saveRDS(selected_gene_sets_contrasts, file.path(outputs_folder, "GSEA_VirusEffectDiff_LE_Selected_statistics.rds"))
 ```
+
+## CONTENTO SummarizedExperiment
+
+To allow interactive exploration of these results, we packaged the final DESeq2 model into a SummarizedExperiment (SE) object for [CONTENTO](https://github.com/KLemonLab/CONTENTO) ([doi:10.5281/zenodo.21629492](https://doi.org/10.5281/zenodo.21629492)), a Shiny app for exploring differential expression results across multiple contrasts. The SE was built following CONTENTO's [Create SE tutorial](https://klemonlab.github.io/CONTENTO/create-se-file.html) and contains all contrasts from [Combine all contrast results](#combine-all-contrast-results), the VST matrix as the `expr_matrix` assay, and the sample metadata. Setting `organism = "Homo sapiens"` enables MSigDB gene set enrichment in CONTENTO, and the built-in `Homo_sapiens.GRCh38.113_annot` annotation (Ensembl release 113, the same used here) adds gene names to the Ensembl IDs.
+
+The `convert_to_SE()` function is copied from the CONTENTO tutorial:
+
+```{r}
+convert_to_SE <- function(dds, contrasts_df, expr_matrix,
+                          organism = NULL, annotation = NULL, varpart = NULL,
+                          db_species = NULL, dataset_name = NULL) { 
+  
+  # Reshape to wide format
+  contrasts_wide <- contrasts_df %>%
+    pivot_wider(
+      id_cols = Geneid,
+      names_from = contrast,
+      values_from = -c(Geneid, contrast),
+      names_sep = "__"
+    )
+  
+  contrasts_found <- unique(contrasts_df$contrast)
+  cat("✓ Found", length(contrasts_found), "contrasts:", paste(contrasts_found, collapse = ", "), "\n")
+  
+  # Extract sample metadata
+  sample_metadata <- as.data.frame(colData(dds))
+  
+  # Create rowData with Geneid as rownames
+  rowdata_df <- contrasts_wide %>%
+    column_to_rownames("Geneid")
+  
+  # Add variance partition data if provided
+  if (!is.null(varpart)) {
+    cat("Loading variance partition data...\n")
+    
+    tryCatch({
+      # Extract only the variance partition matrix
+      varpart_matrix <- varpart$varPart
+      
+      # Get common genes between rowData and varPart
+      common_genes <- intersect(rownames(rowdata_df), rownames(varpart_matrix))
+      
+      if (length(common_genes) > 0) {
+        # Convert to dataframe and add varpart_ prefix
+        varpart_df <- as.data.frame(varpart_matrix[common_genes, , drop = FALSE])
+        colnames(varpart_df) <- paste0("varpart_", colnames(varpart_df))
+        
+        # Merge with rowdata_df (only for genes that exist in both)
+        rowdata_df[common_genes, colnames(varpart_df)] <- varpart_df
+        
+        cat("✓ Added variance partition for", length(common_genes), "genes\n")
+        cat("  Factors:", paste(gsub("varpart_", "", colnames(varpart_df)), collapse = ", "), "\n")
+      } else {
+        cat("⚠ No common genes between contrasts and variance partition\n")
+      }
+      
+    }, error = function(e) {
+      cat("⚠ Error loading variance partition:", e$message, "\n")
+    })
+  }
+  
+  # Ensure rowData order matches dds
+  rowdata_df <- rowdata_df[rownames(dds), ]
+  
+  # Verify dimensions match
+  stopifnot(identical(rownames(rowdata_df), rownames(dds)))
+  stopifnot(identical(rownames(sample_metadata), colnames(dds)))
+  
+  cat("✓ Gene order verified:", nrow(rowdata_df), "genes match\n")
+  
+  # Create SummarizedExperiment
+  se <- SummarizedExperiment(
+    assays = list(expr_matrix = expr_matrix),
+    colData = DataFrame(sample_metadata),
+    rowData = DataFrame(rowdata_df)
+  )
+  
+  # Store metadata
+  metadata(se) <- list(
+    design = design(dds),
+    contrasts = contrasts_found,
+    organism = organism,
+    annotation = annotation, 
+    db_species = db_species,      # optional: "HS" or "MM", overrides automatic msigdbr routing
+    dataset_name = dataset_name,  # optional: base filename prefix for CONTENTO downloads
+    date = Sys.Date()             # recorded for reproducibility but not read by CONTENTO itself
+  )
+  
+  # Return the SummarizedExperiment object
+
+  cat("  Dimensions:", nrow(se), "genes x", ncol(se), "samples\n")
+  cat("  Assays:", paste(names(assays(se)), collapse = ", "), "\n")
+  cat("  Columns in rowData:", ncol(rowData(se)), "\n\n")
+  
+  return(se)
+}
+```
+
+CONTENTO requires generic column names (`log2FC`, `stat`, `padj` and, optionally, `log2FC_shrunk`), so we keep only those statistics from `DESeqData`. Genes with zero counts in all samples have no results and are not in `DESeqData`, so we subset `dds` and the VST matrix to the genes with results.
+
+```{r}
+# Keep and rename the statistics CONTENTO uses
+contrasts_SE <- DESeqData %>%
+  dplyr::select(Geneid, contrast, log2FoldChange, log2FoldChange_shrunk, stat, padj) %>%
+  dplyr::rename(log2FC = log2FoldChange, log2FC_shrunk = log2FoldChange_shrunk)
+
+# Genes with results
+genes_SE <- unique(contrasts_SE$Geneid)
+
+# Build the SE
+SE <- convert_to_SE(
+  dds = dds[genes_SE, ],
+  contrasts_df = contrasts_SE,
+  expr_matrix = vst_matrix[genes_SE, ],
+  organism = "Homo sapiens",
+  annotation = "Homo_sapiens.GRCh38.113_annot",
+  dataset_name = "RSVBac"
+)
+
+saveRDS(SE, file = file.path(outputs_folder, paste0(dataframeID, "_RNASeq_human_SE.rds")))
+```

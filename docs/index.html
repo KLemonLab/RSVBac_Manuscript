@@ -8,7 +8,7 @@
 
 <meta name="author" content="Leah Kafer">
 <meta name="author" content="Isabel F. Escapa">
-<meta name="dcterms.date" content="2026-04-02">
+<meta name="dcterms.date" content="2026-10-27">
 
 <title>RSVBac</title>
 <style>
@@ -4604,6 +4604,7 @@ vertical-align: -.125em;
   <li><a href="#reproducible-r-environment-with-renv" id="toc-reproducible-r-environment-with-renv" class="nav-link" data-scroll-target="#reproducible-r-environment-with-renv">Reproducible R Environment with renv</a></li>
   <li><a href="#rendering-the-project" id="toc-rendering-the-project" class="nav-link" data-scroll-target="#rendering-the-project">Rendering the Project</a></li>
   <li><a href="#available-analysis-notebooks" id="toc-available-analysis-notebooks" class="nav-link" data-scroll-target="#available-analysis-notebooks">Available Analysis Notebooks</a></li>
+  <li><a href="#exploring-the-rna-seq-results-in-contento" id="toc-exploring-the-rna-seq-results-in-contento" class="nav-link" data-scroll-target="#exploring-the-rna-seq-results-in-contento">Exploring the RNA-seq Results in CONTENTO</a></li>
   </ul></li>
   </ul>
 </nav>
@@ -4635,7 +4636,7 @@ vertical-align: -.125em;
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">April 2, 2026</p>
+      <p class="date">October 27, 2026</p>
     </div>
   </div>
   
@@ -4696,6 +4697,10 @@ This repository contains all analysis code and documentation for the manuscript:
 <p>4. <a href="Manuscript_RSVbac_Caspase.html">Caspase Assay</a></p>
 <p>5. <a href="Manuscript_RSVbac_RNASeqHNOs.html">RNASeq Analysis</a></p>
 <p>6. <a href="Manuscript_RSVbac_Cytokines.html">Cytokine Analysis</a></p>
+</section>
+<section id="exploring-the-rna-seq-results-in-contento" class="level2">
+<h2 class="anchored" data-anchor-id="exploring-the-rna-seq-results-in-contento">Exploring the RNA-seq Results in CONTENTO</h2>
+<p>The <a href="Manuscript_RSVbac_RNASeqHNOs.html#contento-summarizedexperiment">RNASeq Analysis</a> notebook also writes <code>RSVbac_RNASeq_human_SE.rds</code>, a SummarizedExperiment object with all the contrasts from the manuscript DESeq2 model. A copy is included in the <code>SE/</code> folder of this repository. Upload it in <a href="https://github.com/KLemonLab/CONTENTO">CONTENTO</a> (<a href="https://doi.org/10.5281/zenodo.21629492">doi:10.5281/zenodo.21629492</a>) to explore the results interactively; see the <a href="https://klemonlab.github.io/CONTENTO/">CONTENTO documentation</a> for how to run the app.</p>
 
 
 <!-- -->
@@ -5054,7 +5059,11 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 <span id="cb4-64"><a href="#cb4-64" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-65"><a href="#cb4-65" aria-hidden="true" tabindex="-1"></a>5<span class="sc">\.</span> <span class="co">[</span><span class="ot">RNASeq Analysis</span><span class="co">](Manuscript_RSVbac_RNASeqHNOs.html)</span></span>
 <span id="cb4-66"><a href="#cb4-66" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-67"><a href="#cb4-67" aria-hidden="true" tabindex="-1"></a>6<span class="sc">\.</span> <span class="co">[</span><span class="ot">Cytokine Analysis</span><span class="co">](Manuscript_RSVbac_Cytokines.html)</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb4-67"><a href="#cb4-67" aria-hidden="true" tabindex="-1"></a>6<span class="sc">\.</span> <span class="co">[</span><span class="ot">Cytokine Analysis</span><span class="co">](Manuscript_RSVbac_Cytokines.html)</span></span>
+<span id="cb4-68"><a href="#cb4-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-69"><a href="#cb4-69" aria-hidden="true" tabindex="-1"></a><span class="fu">## Exploring the RNA-seq Results in CONTENTO</span></span>
+<span id="cb4-70"><a href="#cb4-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-71"><a href="#cb4-71" aria-hidden="true" tabindex="-1"></a>The <span class="co">[</span><span class="ot">RNASeq Analysis</span><span class="co">](Manuscript_RSVbac_RNASeqHNOs.html#contento-summarizedexperiment)</span> notebook also writes <span class="in">`RSVbac_RNASeq_human_SE.rds`</span>, a SummarizedExperiment object with all the contrasts from the manuscript DESeq2 model. A copy is included in the <span class="in">`SE/`</span> folder of this repository. Upload it in <span class="co">[</span><span class="ot">CONTENTO</span><span class="co">](https://github.com/KLemonLab/CONTENTO)</span> (<span class="co">[</span><span class="ot">doi:10.5281/zenodo.21629492</span><span class="co">](https://doi.org/10.5281/zenodo.21629492)</span>) to explore the results interactively; see the <span class="co">[</span><span class="ot">CONTENTO documentation</span><span class="co">](https://klemonlab.github.io/CONTENTO/)</span> for how to run the app.</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div></div></div></div></div>
 </div> <!-- /content -->
 
